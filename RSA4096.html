@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSA-4096 Encryption/Decryption</title>
+  <script src="jsencrypt.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      margin-bottom: 10px;
+    }
+    button {
+      margin: 5px 0;
+      padding: 10px 20px;
+      font-size: 16px;
+      display: inline-block;
+    }
+    .output {
+      background-color: #f8f9fa;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-top: 10px;
+      height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .button-group {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RSA-4096 Encryption/Decryption</h1>
+
+  <h3>Step 1: Generate or Provide Keys</h3>
+  <button onclick="generateKeys()">Generate RSA Key Pair</button>
+  <div>
+    <h4>Public Key:</h4>
+    <div class="button-group">
+      <button onclick="copyToClipboard('publicKey')">Copy Public Key</button>
+      <button onclick="pasteFromClipboard('publicKey')">Paste into Public Key</button>
+    </div>
+    <textarea id="publicKey" placeholder="Paste your public key here..."></textarea>
+
+    <h4>Private Key:</h4>
+    <div class="button-group">
+      <button onclick="copyToClipboard('privateKey')">Copy Private Key</button>
+      <button onclick="pasteFromClipboard('privateKey')">Paste into Private Key</button>
+    </div>
+    <textarea id="privateKey" placeholder="Paste your private key here..."></textarea>
+  </div>
+
+  <h3>Step 2: Encryption</h3>
+  <div class="button-group">
+    <button onclick="copyToClipboard('plaintext')">Copy Message</button>
+    <button onclick="pasteFromClipboard('plaintext')">Paste Message</button>
+  </div>
+  <textarea id="plaintext" placeholder="Enter message to encrypt"></textarea>
+  <button onclick="encryptMessage()">Encrypt</button>
+  <div class="output" id="encryptedMessage"></div>
+
+  <h3>Step 3: Decryption</h3>
+  <div class="button-group">
+    <button onclick="copyToClipboard('ciphertext')">Copy Encrypted Message</button>
+    <button onclick="pasteFromClipboard('ciphertext')">Paste Encrypted Message</button>
+  </div>
+  <textarea id="ciphertext" placeholder="Paste encrypted message here"></textarea>
+  <button onclick="decryptMessage()">Decrypt</button>
+  <div class="output" id="decryptedMessage"></div>
+
+  <script>
+    let autoPublicKey = '';
+    let autoPrivateKey = '';
+
+    function generateKeys() {
+      const crypt = new JSEncrypt({ default_key_size: 4096 });
+      crypt.getKey();
+      autoPublicKey = crypt.getPublicKey();
+      autoPrivateKey = crypt.getPrivateKey();
+      document.getElementById('publicKey').value = autoPublicKey;
+      document.getElementById('privateKey').value = autoPrivateKey;
+      alert('RSA-4096 keys have been generated!');
+    }
+
+    function encryptMessage() {
+      const publicKey = document.getElementById('publicKey').value.trim() || autoPublicKey;
+      const message = document.getElementById('plaintext').value.trim();
+      if (!publicKey || !message) {
+        alert('Please provide a public key and a message to encrypt.');
+        return;
+      }
+      const crypt = new JSEncrypt();
+      crypt.setPublicKey(publicKey);
+      const encrypted = crypt.encrypt(message);
+      if (encrypted) {
+        document.getElementById('encryptedMessage').textContent = encrypted;
+        document.getElementById('ciphertext').value = encrypted;
+      } else {
+        document.getElementById('encryptedMessage').textContent = 'Encryption failed! Check the public key or message format.';
+      }
+    }
+
+    function decryptMessage() {
+      const privateKey = document.getElementById('privateKey').value.trim() || autoPrivateKey;
+      const encryptedMessage = document.getElementById('ciphertext').value.trim();
+      if (!privateKey || !encryptedMessage) {
+        alert('Please provide a private key and an encrypted message to decrypt.');
+        return;
+      }
+      const crypt = new JSEncrypt();
+      crypt.setPrivateKey(privateKey);
+      const decrypted = crypt.decrypt(encryptedMessage);
+      if (decrypted) {
+        document.getElementById('decryptedMessage').textContent = decrypted;
+      } else {
+        document.getElementById('decryptedMessage').textContent = 'Decryption failed! Check the private key or encrypted message.';
+      }
+    }
+
+    function copyToClipboard(elementId) {
+      const textarea = document.getElementById(elementId);
+      textarea.select();
+      document.execCommand('copy');
+      alert('Copied to clipboard!');
+    }
+
+    async function pasteFromClipboard(elementId) {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById(elementId).value = text;
+      } catch (err) {
+        alert('Failed to paste from clipboard: ' + err.message);
+      }
+    }
+  </script>
+</body>
+</html>
