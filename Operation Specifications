@@ -1,0 +1,37 @@
+Operation Specifications
+Password Generation Protocol
+Passwords must be generated on a permanently air-gapped computer that has never been connected to any network.
+
+Passwords must be generated using a secure random password generator, containing uppercase letters, lowercase letters, spaces, special characters, and numbers.
+
+Each password must be at least 32 characters in length; 200 characters or more is recommended.
+
+Password Storage Protocol
+Password records must be stored exclusively on a dedicated USB drive, and must never be connected to any networked device.
+
+The USB drive must be encrypted with VeraCrypt or an equivalent full-disk encryption tool to prevent data loss in case of theft or misplacement.
+
+The password book must contain machine-generated random passwords, with a different password for each day (1st–31st).
+
+The password book has a maximum validity period of one month, after which it must be completely replaced.
+
+After each day's use, the corresponding day's password entry must be immediately destroyed.
+
+Password Exchange Protocol
+Passwords or password books must be exchanged physically in-person whenever possible.
+
+If physical exchange is not feasible, use secure communication channels such as Signal, ensuring end-to-end encryption.
+
+Prior to exchanging sensitive data, public keys must be exchanged using RSA-4096 encryption.
+
+After key exchange, a voice call must be conducted to verify the key fingerprints, preventing man-in-the-middle attacks.
+
+Content Encryption Protocol
+Avoid encrypting repeated or predictable plaintexts (e.g., common phrases like "Hi") to mitigate known-plaintext attacks.
+
+Vary writing style and vocabulary across communications to avoid creating detectable patterns that could aid cryptanalysis.
+
+Capture Contingency Protocol
+In the event of a raid or imminent capture, immediately destroy any USB drives and flash memory devices carrying sensitive information.
+
+Passwords must be machine-generated and not memorized, ensuring that even under interrogation, the user cannot recall or disclose password content.
