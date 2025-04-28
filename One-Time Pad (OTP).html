@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Random OTP 8-bit Binary Mapping (a-z, 0-9)</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 20px; }
+    .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 800px; margin: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; font-size: 18px; }
+    th { background-color: #007BFF; color: white; }
+    button { width: 100%; padding: 10px; font-size: 18px; margin-top: 10px; background-color: #007BFF; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background-color: #0056b3; }
+    h2 { text-align: center; }
+    textarea { width: 100%; height: 100px; margin-top: 10px; font-size: 16px; padding: 10px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h2>Random OTP 8-bit Binary Mapping (a-z, 0-9)</h2>
+  <button onclick="generateMapping()">Generate Random Mapping</button>
+  <button onclick="exportMapping()">Export Mapping</button>
+  <button onclick="importMapping()">Import Mapping</button>
+  <table id="mappingTable">
+    <thead>
+      <tr>
+        <th>Character</th>
+        <th>Random 8-bit Binary</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+
+  <h3>Encrypt</h3>
+  <textarea id="plaintextInput" placeholder="Enter plaintext (a-z, 0-9) to encrypt..."></textarea>
+  <button onclick="encryptText()">Encrypt</button>
+  <textarea id="cipherOutput" readonly placeholder="Encrypted binary will appear here..."></textarea>
+
+  <h3>Decrypt</h3>
+  <textarea id="ciphertext" placeholder="Enter binary ciphertext..."></textarea>
+  <button onclick="decryptText()">Decrypt</button>
+  <textarea id="plaintext" readonly placeholder="Decrypted text will appear here..."></textarea>
+</div>
+
+<script>
+const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'.split('');
+let mapping = {};
+let reverseMapping = {};
+
+function generateRandom8Bits() {
+  const byte = new Uint8Array(1);
+  window.crypto.getRandomValues(byte);
+  return byte[0].toString(2).padStart(8, '0');
+}
+
+function generateMapping() {
+  mapping = {};
+  reverseMapping = {};
+  const usedBinaries = new Set();
+  const tableBody = document.getElementById('mappingTable').querySelector('tbody');
+  tableBody.innerHTML = '';
+
+  chars.forEach(char => {
+    let randomBits;
+    do {
+      randomBits = generateRandom8Bits();
+    } while (usedBinaries.has(randomBits));
+
+    usedBinaries.add(randomBits);
+    mapping[randomBits] = char;
+    reverseMapping[char] = randomBits;
+
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${char}</td><td>${randomBits}</td>`;
+    tableBody.appendChild(row);
+  });
+}
+
+function exportMapping() {
+  const exportData = Object.entries(mapping).map(([bin, char]) => `${bin}:${char}`).join('\n');
+  const blob = new Blob([exportData], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'mapping.txt';
+  link.click();
+}
+
+function importMapping() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.txt';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = event => {
+      const lines = event.target.result.split('\n');
+      mapping = {};
+      reverseMapping = {};
+      const tableBody = document.getElementById('mappingTable').querySelector('tbody');
+      tableBody.innerHTML = '';
+      lines.forEach(line => {
+        const [bin, char] = line.split(':');
+        if (bin && char) {
+          mapping[bin] = char;
+          reverseMapping[char] = bin;
+          const row = document.createElement('tr');
+          row.innerHTML = `<td>${char}</td><td>${bin}</td>`;
+          tableBody.appendChild(row);
+        }
+      });
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function decryptText() {
+  const ciphertext = document.getElementById('ciphertext').value.trim();
+  let result = '';
+  for (let i = 0; i < ciphertext.length; i += 8) {
+    const byte = ciphertext.slice(i, i + 8);
+    if (mapping[byte]) {
+      result += mapping[byte];
+    } else {
+      result += '?';
+    }
+  }
+  document.getElementById('plaintext').value = result;
+}
+
+function encryptText() {
+  const plaintext = document.getElementById('plaintextInput').value.trim().toLowerCase();
+  let cipherResult = '';
+  for (let char of plaintext) {
+    if (reverseMapping[char]) {
+      cipherResult += reverseMapping[char];
+    } else {
+      cipherResult += '????????';
+    }
+  }
+  document.getElementById('cipherOutput').value = cipherResult;
+}
+</script>
+</body>
+</html>
