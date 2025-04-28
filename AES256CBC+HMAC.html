@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AES-256-CBC + HMAC-SHA256 (Pure Native JS)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    textarea, input, button { width: 100%; margin: 10px 0; padding: 10px; font-size: 16px; }
+    textarea { height: 150px; }
+  </style>
+</head>
+<body>
+<h2>AES-256-CBC + HMAC-SHA256 Secure Encryption/Decryption</h2>
+
+<textarea id="text" placeholder="Enter text to encrypt or decrypt..."></textarea>
+<input type="password" id="password" placeholder="Enter encryption password">
+
+<button onclick="encryptText()">Encrypt</button>
+<button onclick="decryptText()">Decrypt</button>
+<button onclick="copyToClipboard()">Copy Result</button>
+
+<textarea id="result" readonly placeholder="Result will appear here..."></textarea>
+
+<script>
+async function getRandomBytes(length) {
+  const array = new Uint8Array(length);
+  window.crypto.getRandomValues(array);
+  return array;
+}
+
+function base64UrlEncode(buffer) {
+  return btoa(String.fromCharCode(...buffer))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64UrlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Uint8Array.from(atob(str), c => c.charCodeAt(0));
+}
+
+async function deriveKeys(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const derivedBits = await window.crypto.subtle.deriveBits({
+    name: "PBKDF2",
+    salt: salt,
+    iterations: 150000,
+    hash: "SHA-256"
+  }, keyMaterial, 512);
+  const bytes = new Uint8Array(derivedBits);
+  return {
+    encKey: await window.crypto.subtle.importKey("raw", bytes.slice(0,32), {name: "AES-CBC"}, false, ["encrypt","decrypt"]),
+    hmacKey: await window.crypto.subtle.importKey("raw", bytes.slice(32), {name: "HMAC", hash: "SHA-256"}, false, ["sign","verify"])
+  };
+}
+
+async function encryptText() {
+  const text = document.getElementById('text').value;
+  const password = document.getElementById('password').value;
+
+  if (!text || !password) { alert('Text and password are required!'); return; }
+
+  const salt = await getRandomBytes(16);
+  const iv = await getRandomBytes(16);
+
+  const { encKey, hmacKey } = await deriveKeys(password, salt);
+
+  const enc = new TextEncoder();
+  const encrypted = await window.crypto.subtle.encrypt({
+    name: "AES-CBC",
+    iv: iv
+  }, encKey, enc.encode(text));
+
+  const combined = new Uint8Array([...salt, ...iv, ...new Uint8Array(encrypted)]);
+  const hmac = await window.crypto.subtle.sign("HMAC", hmacKey, combined);
+
+  const finalOutput = base64UrlEncode(combined) + ":" + base64UrlEncode(new Uint8Array(hmac));
+  document.getElementById('result').value = finalOutput;
+}
+
+async function decryptText() {
+  const input = document.getElementById('text').value;
+  const password = document.getElementById('password').value;
+
+  if (!input || !password) { alert('Encrypted text and password are required!'); return; }
+
+  try {
+    const [dataB64, hmacB64] = input.split(":");
+    const data = base64UrlDecode(dataB64);
+    const hmacReceived = base64UrlDecode(hmacB64);
+
+    const salt = data.slice(0,16);
+    const iv = data.slice(16,32);
+    const ciphertext = data.slice(32);
+
+    const { encKey, hmacKey } = await deriveKeys(password, salt);
+
+    const isValid = await window.crypto.subtle.verify("HMAC", hmacKey, hmacReceived, data);
+    if (!isValid) throw new Error("Integrity check failed (tampering detected)");
+
+    const decrypted = await window.crypto.subtle.decrypt({
+      name: "AES-CBC",
+      iv: iv
+    }, encKey, ciphertext);
+
+    document.getElementById('result').value = new TextDecoder().decode(decrypted);
+  } catch (err) {
+    document.getElementById('result').value = 'Decryption failed: ' + err.message;
+  }
+}
+
+function copyToClipboard() {
+  const result = document.getElementById('result');
+  result.select();
+  document.execCommand("copy");
+  alert("Copied to clipboard!");
+}
+</script>
+</body>
+</html>
