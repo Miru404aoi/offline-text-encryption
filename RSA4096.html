@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RSA-4096 OAEP Encryption/Decryption</title>
+  <title>RSA-4096 OAEP Encryption/Decryption (Enhanced)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -30,15 +30,17 @@
   </style>
 </head>
 <body>
-  <h1>RSA-4096 OAEP Encryption/Decryption</h1>
+  <h1>RSA-4096 OAEP Encryption/Decryption (Enhanced)</h1>
 
-  <button onclick="generateKeys()">Generate RSA-4096 Key Pair</button>
+  <button id="generateBtn" onclick="generateKeys()">Generate RSA-4096 Key Pair</button>
 
   <h3>Public Key (PEM format)</h3>
   <textarea id="publicKey" placeholder="Public key will appear here..."></textarea>
+  <button onclick="copyText('publicKey')">Copy Public Key</button>
 
   <h3>Private Key (PEM format)</h3>
   <textarea id="privateKey" placeholder="Private key will appear here..."></textarea>
+  <button onclick="copyText('privateKey')">Copy Private Key</button>
 
   <h3>Text to Encrypt</h3>
   <textarea id="plaintext" placeholder="Enter text to encrypt..."></textarea>
@@ -46,6 +48,7 @@
 
   <h3>Encrypted Text (Base64)</h3>
   <div class="output" id="encryptedMessage"></div>
+  <button onclick="copyDiv('encryptedMessage')">Copy Encrypted Text</button>
 
   <h3>Text to Decrypt</h3>
   <textarea id="ciphertext" placeholder="Paste encrypted text here..."></textarea>
@@ -53,11 +56,17 @@
 
   <h3>Decrypted Message</h3>
   <div class="output" id="decryptedMessage"></div>
+  <button onclick="copyDiv('decryptedMessage')">Copy Decrypted Text</button>
 
   <script>
     let cryptoKeyPair;
 
     async function generateKeys() {
+      const generateBtn = document.getElementById('generateBtn');
+      const originalText = generateBtn.innerText;
+      generateBtn.disabled = true;
+      generateBtn.innerText = 'Generating...';
+
       cryptoKeyPair = await window.crypto.subtle.generateKey(
         {
           name: "RSA-OAEP",
@@ -75,14 +84,17 @@
       document.getElementById('publicKey').value = pemEncode(publicKey, "PUBLIC KEY");
       document.getElementById('privateKey').value = pemEncode(privateKey, "PRIVATE KEY");
 
-      alert('RSA-4096 Key Pair Generated!');
+      generateBtn.innerText = '✔️ Keys Generated!';
+      setTimeout(() => {
+        generateBtn.innerText = originalText;
+        generateBtn.disabled = false;
+      }, 1500);
     }
 
     async function encryptText() {
       try {
         const plaintext = document.getElementById('plaintext').value;
         const publicKeyPem = document.getElementById('publicKey').value;
-
         if (!plaintext || !publicKeyPem) {
           alert('Please provide plaintext and public key.');
           return;
@@ -90,17 +102,11 @@
 
         const publicKey = await importKey(publicKeyPem, "public");
         const enc = new TextEncoder();
+        const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, enc.encode(plaintext));
 
-        const encrypted = await window.crypto.subtle.encrypt(
-          {
-            name: "RSA-OAEP"
-          },
-          publicKey,
-          enc.encode(plaintext)
-        );
-
-        document.getElementById('encryptedMessage').textContent = arrayBufferToBase64(encrypted);
-        document.getElementById('ciphertext').value = arrayBufferToBase64(encrypted);
+        const base64 = arrayBufferToBase64(encrypted);
+        document.getElementById('encryptedMessage').textContent = base64;
+        document.getElementById('ciphertext').value = base64;
       } catch (err) {
         document.getElementById('encryptedMessage').textContent = 'Encryption failed: ' + err.message;
       }
@@ -110,7 +116,6 @@
       try {
         const ciphertextBase64 = document.getElementById('ciphertext').value;
         const privateKeyPem = document.getElementById('privateKey').value;
-
         if (!ciphertextBase64 || !privateKeyPem) {
           alert('Please provide encrypted text and private key.');
           return;
@@ -119,14 +124,7 @@
         const privateKey = await importKey(privateKeyPem, "private");
         const ciphertext = base64ToArrayBuffer(ciphertextBase64);
 
-        const decrypted = await window.crypto.subtle.decrypt(
-          {
-            name: "RSA-OAEP"
-          },
-          privateKey,
-          ciphertext
-        );
-
+        const decrypted = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, ciphertext);
         document.getElementById('decryptedMessage').textContent = new TextDecoder().decode(decrypted);
       } catch (err) {
         document.getElementById('decryptedMessage').textContent = 'Decryption failed: ' + err.message;
@@ -144,27 +142,9 @@
       const raw = base64ToArrayBuffer(b64);
 
       if (type === "public") {
-        return await window.crypto.subtle.importKey(
-          "spki",
-          raw,
-          {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-          },
-          true,
-          ["encrypt"]
-        );
+        return await window.crypto.subtle.importKey("spki", raw, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
       } else {
-        return await window.crypto.subtle.importKey(
-          "pkcs8",
-          raw,
-          {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-          },
-          true,
-          ["decrypt"]
-        );
+        return await window.crypto.subtle.importKey("pkcs8", raw, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
       }
     }
 
@@ -184,6 +164,26 @@
         bytes[i] = binary.charCodeAt(i);
       }
       return bytes.buffer;
+    }
+
+    async function copyText(id) {
+      const text = document.getElementById(id).value;
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Copied to clipboard!');
+      } catch (err) {
+        console.error('Copy failed:', err);
+      }
+    }
+
+    async function copyDiv(id) {
+      const text = document.getElementById(id).textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Copied to clipboard!');
+      } catch (err) {
+        console.error('Copy failed:', err);
+      }
     }
   </script>
 </body>
