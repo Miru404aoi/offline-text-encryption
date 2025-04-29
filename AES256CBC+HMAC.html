@@ -119,11 +119,15 @@ async function decryptText() {
   }
 }
 
-function copyToClipboard() {
-  const result = document.getElementById('result');
-  result.select();
-  document.execCommand("copy");
-  alert("Copied to clipboard!");
+async function copyToClipboard() {
+    const result = document.getElementById('result').value;
+    try {
+        await navigator.clipboard.writeText(result);
+        alert('Copied to clipboard!');
+    } catch (err) {
+        console.error('Failed to copy: ', err);
+        alert('Failed to copy.');
+    }
 }
 </script>
 </body>
