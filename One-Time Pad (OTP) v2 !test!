@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One-Time Pad Encryptor (True OTP)</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 20px; }
+    .container { background: white; padding: 20px; border-radius: 10px; max-width: 800px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    textarea { width: 100%; height: 120px; font-size: 16px; margin-top: 10px; padding: 10px; }
+    button { padding: 10px; margin-top: 10px; width: 100%; font-size: 18px; background: #007BFF; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    h2 { text-align: center; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h2>One-Time Pad Encryptor</h2>
+
+  <h3>Encrypt</h3>
+  <textarea id="plaintext" placeholder="Enter text to encrypt..."></textarea>
+  <button onclick="encryptText()">Encrypt (Generate New Key)</button>
+  <textarea id="cipherOutput" readonly placeholder="Cipher (Base64) will appear here..."></textarea>
+  <textarea id="keyOutput" readonly placeholder="Key (Base64) will appear here..."></textarea>
+
+  <h3>Decrypt</h3>
+  <textarea id="cipherInput" placeholder="Enter cipher (Base64)..."></textarea>
+  <textarea id="keyInput" placeholder="Enter key (Base64)..."></textarea>
+  <button onclick="decryptText()">Decrypt</button>
+  <textarea id="decryptedOutput" readonly placeholder="Decrypted text will appear here..."></textarea>
+</div>
+
+<script>
+function encryptText() {
+  const plaintext = document.getElementById("plaintext").value;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plaintext);
+
+  // Generate random key (same length as plaintext)
+  const key = crypto.getRandomValues(new Uint8Array(data.length));
+
+  // XOR encryption
+  const cipher = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) {
+    cipher[i] = data[i] ^ key[i];
+  }
+
+  // Output Base64
+  document.getElementById("cipherOutput").value = btoa(String.fromCharCode(...cipher));
+  document.getElementById("keyOutput").value = btoa(String.fromCharCode(...key));
+}
+
+function decryptText() {
+  try {
+    const cipherB64 = document.getElementById("cipherInput").value.trim();
+    const keyB64 = document.getElementById("keyInput").value.trim();
+    const cipher = Uint8Array.from(atob(cipherB64), c => c.charCodeAt(0));
+    const key = Uint8Array.from(atob(keyB64), c => c.charCodeAt(0));
+
+    if (cipher.length !== key.length) {
+      alert("Cipher and key must be the same length!");
+      return;
+    }
+
+    // XOR decryption
+    const data = new Uint8Array(cipher.length);
+    for (let i = 0; i < cipher.length; i++) {
+      data[i] = cipher[i] ^ key[i];
+    }
+
+    const decoder = new TextDecoder();
+    document.getElementById("decryptedOutput").value = decoder.decode(data);
+  } catch (e) {
+    alert("Invalid input format!");
+  }
+}
+</script>
+</body>
+</html>
