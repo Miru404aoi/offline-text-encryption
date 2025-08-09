@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AES-256-GCM Text Encryptor</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; connect-src 'none';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:20px;line-height:1.45}
+    h1{font-size:20px;margin:0 0 10px}
+    .row{margin:10px 0}
+    .label{font-weight:600;margin:6px 0;display:block}
+    textarea,input,button{width:100%;font-size:15px;padding:10px;box-sizing:border-box}
+    textarea{height:150px;resize:vertical}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .hint{color:#666;font-size:12px}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .ok{color:#0a7d00}.err{color:#b00020}
+  </style>
+</head>
+<body>
+  <h1>AES-256-GCM Text Encryptor</h1>
+
+  <div class="row">
+    <span class="label">Input (plaintext to encrypt or ciphertext to decrypt, Base64URL)</span>
+    <textarea id="io" class="mono" placeholder="Enter plaintext to encrypt or paste ciphertext to decrypt" spellcheck="false"></textarea>
+  </div>
+
+  <div class="cols">
+    <div class="row">
+      <span class="label">Password (high-entropy, ≥ 32 chars recommended)</span>
+      <input id="pwd" type="password" class="mono" placeholder="Use in an offline clean environment" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="row">
+      <span class="label">PBKDF2 Iterations (default 200000)</span>
+      <input id="iters" type="number" class="mono" min="10000" max="5000000" step="1000" value="200000">
+      <div class="hint">The iteration count is stored in the ciphertext header.</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <span class="label">AAD Context (optional, must match on both sides)</span>
+    <input id="aad" type="text" class="mono" value="">
+    <div class="hint">Empty by default. Participates in authentication only.</div>
+  </div>
+
+  <div class="cols">
+    <button id="encBtn">Encrypt (AES-GCM)</button>
+    <button id="decBtn">Decrypt (AES-GCM)</button>
+  </div>
+
+  <div class="cols" style="margin-top:6px">
+    <button id="copyBtn">Copy Output</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <div id="status" class="hint" style="margin-top:8px"></div>
+
+  <script>
+  const enc = new TextEncoder(), dec = new TextDecoder();
+
+  function b64uEncode(u8){
+    let s = '', chunk = 0x8000;
+    for(let i=0;i<u8.length;i+=chunk){
+      s += String.fromCharCode.apply(null, u8.subarray(i, i+chunk));
+    }
+    return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  function b64uDecode(str){
+    str = (str||'').replace(/[\r\n\s]/g,'').replace(/-/g,'+').replace(/_/g,'/');
+    const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
+    const bin = atob(str + pad);
+    const u8 = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+  function concatBytes(...arrs){
+    const total = arrs.reduce((a,b)=>a + b.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for(const a of arrs){ out.set(a, off); off += a.length; }
+    return out;
+  }
+
+  const VER = 0x01;
+  const KDF_PBKDF2 = 0x01;
+
+  function buildHeader(iter, salt, iv){
+    const hdr = new Uint8Array(16 + 12 + 1 + 1 + 4);
+    hdr.set(salt, 0);
+    hdr.set(iv, 16);
+    hdr[28] = VER;
+    hdr[29] = KDF_PBKDF2;
+    new DataView(hdr.buffer).setUint32(30, iter >>> 0, true);
+    return hdr;
+  }
+  function parseHeader(u8){
+    if(u8.length < 16+12+1+1+4) throw new Error('Ciphertext too short');
+    const salt = u8.slice(0, 16);
+    const iv   = u8.slice(16, 28);
+    const ver  = u8[28];
+    const kdf  = u8[29];
+    const iter = new DataView(u8.buffer, u8.byteOffset+30, 4).getUint32(0, true);
+    const body = u8.slice(34);
+    if(ver !== VER) throw new Error('Version mismatch');
+    if(kdf !== KDF_PBKDF2) throw new Error('Unsupported KDF');
+    if(body.length < 16) throw new Error('Invalid ciphertext body');
+    return {iter, salt, iv, body};
+  }
+
+  async function deriveAesKey(passwordUtf8, salt, iterations){
+    const keyMat = await crypto.subtle.importKey('raw', passwordUtf8, 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      {name:'PBKDF2', salt, iterations, hash:'SHA-256'},
+      keyMat,
+      {name:'AES-GCM', length:256},
+      false,
+      ['encrypt','decrypt']
+    );
+  }
+
+  const $io = document.getElementById('io');
+  const $pwd = document.getElementById('pwd');
+  const $iters = document.getElementById('iters');
+  const $aad = document.getElementById('aad');
+  const $enc = document.getElementById('encBtn');
+  const $dec = document.getElementById('decBtn');
+  const $copy = document.getElementById('copyBtn');
+  const $clear = document.getElementById('clearBtn');
+  const $status = document.getElementById('status');
+
+  function setStatus(msg, ok=false){
+    $status.textContent = msg;
+    $status.className = ok ? 'ok' : 'err';
+    if(!msg) $status.className = 'hint';
+  }
+  function setDecryptError(e){
+    if(e && (e.name === 'OperationError' || /OperationError/.test(String(e)))){
+      setStatus('Decryption failed: password or AAD mismatch (authentication failed)', false);
+    }else{
+      setStatus('Decryption failed: ' + (e.message || e), false);
+    }
+  }
+
+  $enc.onclick = async () => {
+    try{
+      setStatus('');
+      const text = ($io.value ?? '').toString();
+      const pwd  = ($pwd.value ?? '').toString();
+      const aadStr = ($aad.value ?? '').toString();
+      let iters = parseInt($iters.value||'0',10) || 200000;
+      iters = Math.max(10000, Math.min(5000000, iters));
+      if(!text) throw new Error('Plaintext is empty');
+      if(!pwd)  throw new Error('Password is empty');
+
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv   = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveAesKey(enc.encode(pwd), salt, iters);
+      const aad = aadStr ? enc.encode(aadStr) : undefined;
+
+      const ctBuf = await crypto.subtle.encrypt(
+    {name:'AES-GCM', iv, additionalData: aadStr ? enc.encode(aadStr) : new Uint8Array(0), tagLength:128},
+    key,
+    enc.encode(text)
+);
+      const out = concatBytes(buildHeader(iters, salt, iv), new Uint8Array(ctBuf));
+      const b64u = b64uEncode(out);
+
+      $io.value = b64u;
+      setStatus('Encryption complete', true);
+
+      salt.fill(0); iv.fill(0);
+    }catch(e){
+      setStatus('Encryption failed: ' + (e.message || e), false);
+    }
+  };
+
+  $dec.onclick = async () => {
+    try{
+      setStatus('');
+      const b64u = ($io.value ?? '').toString();
+      const pwd  = ($pwd.value ?? '').toString();
+      const aadStr = ($aad.value ?? '').toString();
+      if(!b64u) throw new Error('Ciphertext is empty');
+      if(!pwd)  throw new Error('Password is empty');
+
+      const blob = b64uDecode(b64u);
+      const {iter, salt, iv, body} = parseHeader(blob);
+      const key = await deriveAesKey(enc.encode(pwd), salt, iter);
+      const aad = aadStr ? enc.encode(aadStr) : undefined;
+
+      const ptBuf = await crypto.subtle.decrypt(
+    {name:'AES-GCM', iv, additionalData: aadStr ? enc.encode(aadStr) : new Uint8Array(0), tagLength:128},
+    key,
+    body
+);
+      const plain = dec.decode(ptBuf);
+      $io.value = plain;
+      setStatus('Decryption successful (iterations=' + iter + ')', true);
+
+      salt.fill(0); iv.fill(0);
+    }catch(e){
+      setDecryptError(e);
+    }
+  };
+
+  $copy.onclick = async () => {
+    try{
+      await navigator.clipboard.writeText($io.value);
+      setStatus('Copied to clipboard', true);
+      setTimeout(()=>setStatus(''), 1200);
+    }catch(e){
+      setStatus('Copy failed: ' + (e.message || e), false);
+    }
+  };
+
+  $clear.onclick = () => { $io.value=''; setStatus(''); };
+  </script>
+</body>
+</html>
