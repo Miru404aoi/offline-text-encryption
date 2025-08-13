@@ -1,0 +1,266 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebRTC Manual Signaling + Optional TURN + Text Chat + File Transfer</title>
+<style>
+  body{font-family:system-ui;margin:20px;max-width:1000px}
+  textarea,input,button{width:100%;box-sizing:border-box}
+  textarea{height:170px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{border:1px solid #e5e7eb;border-radius:12px;padding:12px}
+  small{color:#6b7280}
+  .grid-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+  #chatHistory {height: 200px; overflow-y: auto; border: 1px solid #e5e7eb; padding: 8px; margin-bottom: 8px;}
+</style>
+
+<h2>WebRTC Manual Signaling (Audio + Text Chat + File Transfer) — Optional TURN</h2>
+<p>Steps: Both sides click “Start Capture”. A clicks “Generate Offer” and sends the left JSON to B; B pastes it into the right box → clicks “Apply Remote (or generate Answer)”, then sends the left JSON back to A; A pastes it into the right box → clicks “Apply Remote”.</p>
+
+<div class="card">
+  <h3>Optional TURN (leave blank to disable)</h3>
+  <div class="grid-3">
+    <div>
+      <label>TURN URL (e.g., <code>turn:turn.example.com:3478</code> or <code>turns:turn.example.com:5349</code>)</label>
+      <input id="turnUrl" placeholder="turns:turn.yourdomain.com:5349">
+    </div>
+    <div>
+      <label>Username (optional)</label>
+      <input id="turnUser" placeholder="username">
+    </div>
+    <div>
+      <label>Password (optional)</label>
+      <input id="turnPass" placeholder="password">
+    </div>
+  </div>
+  <small>Tip: In restrictive networks (symmetric NAT / UDP blocked), use <code>turns:</code> over port 443.</small>
+</div>
+
+<div class="row" style="margin-top:16px">
+  <div class="card">
+    <h3>Local (copy to peer)</h3>
+    <textarea id="local" placeholder="JSON to send to the peer will appear here"></textarea>
+    <button id="copyLocal">Copy local content</button>
+    <p>ICE gathering: <span id="iceGather">new</span> | Connection state: <span id="connState">new</span></p>
+  </div>
+  <div class="card">
+    <h3>Remote (paste peer content)</h3>
+    <textarea id="remote" placeholder="Paste the peer's JSON here"></textarea>
+    <button id="applyRemote">Apply Remote (or generate Answer)</button>
+  </div>
+</div>
+
+<div class="row" style="margin-top:16px">
+  <div class="card">
+    <button id="start">Start Capture (microphone)</button>
+    <button id="makeOffer">Generate Offer (peer A)</button>
+    <small>Note: You must grant microphone permission; open over HTTPS or on <code>localhost</code>.</small>
+  </div>
+  <div class="card">
+    <audio id="remoteAudio" autoplay playsinline controls></audio>
+    <small>If no audio: ensure a user gesture (button click) occurred; iOS requires <code>playsinline</code>.</small>
+  </div>
+</div>
+
+<div class="row" style="margin-top:16px">
+  <div class="card">
+    <h3>Text Chat</h3>
+    <div id="chatHistory"></div>
+    <input id="chatInput" placeholder="Type a message and press Enter">
+    <small>Available after the connection is established.</small>
+  </div>
+  <div class="card">
+    <h3>File Transfer</h3>
+    <input type="file" id="fileInput">
+    <button id="sendFile">Send File</button>
+    <div id="fileProgress"></div>
+    <small>Available after the connection is established. Received files will download automatically.</small>
+  </div>
+</div>
+
+<script>
+let pc, stream;
+const iceBuf = [];
+const iceGather = document.getElementById('iceGather');
+const connState = document.getElementById('connState');
+const local = document.getElementById('local');
+const remote = document.getElementById('remote');
+const ra = document.getElementById('remoteAudio');
+let chatChannel, fileChannel;
+
+function buildIceServers(){
+  const turnUrl = document.getElementById('turnUrl').value.trim();
+  const u = document.getElementById('turnUser').value.trim();
+  const p = document.getElementById('turnPass').value.trim();
+  const servers = [{ urls: "stun:stun.l.google.com:19302" }]; // Free STUN
+  if (turnUrl) {
+    const entry = { urls: turnUrl };
+    if (u) entry.username = u;
+    if (p) entry.credential = p;
+    servers.push(entry);
+  }
+  return servers;
+}
+
+function updateLocalBlob() {
+  if (!pc) return;
+  const blob = { sdp: pc.localDescription || null, ice: iceBuf };
+  local.value = JSON.stringify(blob, null, 2);
+}
+
+function appendChatMessage(msg, isRemote = false) {
+  const chatHistory = document.getElementById('chatHistory');
+  const div = document.createElement('div');
+  div.textContent = (isRemote ? 'Peer: ' : 'Me: ') + msg;
+  chatHistory.appendChild(div);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+function setupDataChannels() {
+  // Text chat channel
+  chatChannel = pc.createDataChannel('chat');
+  chatChannel.onopen = () => console.log('Chat channel open');
+  chatChannel.onmessage = (e) => appendChatMessage(e.data, true);
+
+  // File transfer channel
+  fileChannel = pc.createDataChannel('file');
+  fileChannel.onopen = () => console.log('File channel open');
+  fileChannel.binaryType = 'arraybuffer';
+
+  let receivedBuffers = [];
+  let receivedSize = 0;
+  let fileName = '';
+  let fileSize = 0;
+
+  fileChannel.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      // Metadata: filename and size
+      const meta = JSON.parse(e.data);
+      fileName = meta.name;
+      fileSize = meta.size;
+      receivedBuffers = [];
+      receivedSize = 0;
+      document.getElementById('fileProgress').textContent = `Receiving file: ${fileName} (0/${fileSize})`;
+    } else {
+      // File chunk
+      receivedBuffers.push(e.data);
+      receivedSize += e.data.byteLength;
+      document.getElementById('fileProgress').textContent = `Receiving file: ${fileName} (${receivedSize}/${fileSize})`;
+      if (receivedSize === fileSize) {
+        const blob = new Blob(receivedBuffers);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('fileProgress').textContent = 'File received';
+      }
+    }
+  };
+
+  pc.ondatachannel = (e) => {
+    if (e.channel.label === 'chat') {
+      chatChannel = e.channel;
+      chatChannel.onmessage = (e) => appendChatMessage(e.data, true);
+    } else if (e.channel.label === 'file') {
+      fileChannel = e.channel;
+      fileChannel.binaryType = 'arraybuffer';
+      fileChannel.onmessage = fileChannel.onmessage; // reuse receive logic
+    }
+  };
+}
+
+document.getElementById('start').onclick = async () => {
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  pc.ontrack = e => { ra.srcObject = e.streams[0]; };
+
+  pc.onicecandidate = e => { if (e.candidate) { iceBuf.push(e.candidate); updateLocalBlob(); } };
+  pc.onicegatheringstatechange = () => { iceGather.textContent = pc.iceGatheringState; updateLocalBlob(); };
+  pc.onconnectionstatechange = () => { connState.textContent = pc.connectionState; };
+
+  // For debugging
+  pc.oniceconnectionstatechange = () => console.log('ice:', pc.iceConnectionState);
+  console.log('ICE servers:', buildIceServers());
+
+  setupDataChannels(); // Set up data channels
+
+  alert('Ready: Peer A can now click "Generate Offer".');
+};
+
+document.getElementById('makeOffer').onclick = async () => {
+  if (!pc) return alert('Please click "Start Capture" first.');
+  const offer = await pc.createOffer({ offerToReceiveAudio: true });
+  await pc.setLocalDescription(offer);
+  updateLocalBlob();
+};
+
+document.getElementById('applyRemote').onclick = async () => {
+  if (!pc) return alert('Please click "Start Capture" first.');
+  if (!remote.value.trim()) return alert('Right box is empty');
+  const obj = JSON.parse(remote.value);
+
+  if (obj.sdp) {
+    await pc.setRemoteDescription(obj.sdp);
+    if (pc.signalingState === "have-remote-offer") {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+    }
+  }
+  if (Array.isArray(obj.ice)) {
+    for (const c of obj.ice) { try { await pc.addIceCandidate(c); } catch(e){} }
+  }
+  updateLocalBlob();
+};
+
+document.getElementById('copyLocal').onclick = async () => {
+  await navigator.clipboard.writeText(local.value);
+  alert('Copied. Send it to the peer.');
+};
+
+// Text chat send
+document.getElementById('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && chatChannel && chatChannel.readyState === 'open') {
+    const msg = e.target.value.trim();
+    if (msg) {
+      chatChannel.send(msg);
+      appendChatMessage(msg);
+      e.target.value = '';
+    }
+  }
+});
+
+// File send
+document.getElementById('sendFile').onclick = () => {
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput.files[0];
+  if (!file || !fileChannel || fileChannel.readyState !== 'open') return alert('Select a file and ensure the connection is established');
+
+  // Send metadata
+  fileChannel.send(JSON.stringify({ name: file.name, size: file.size }));
+
+  // Chunked send (16KB)
+  const chunkSize = 16384;
+  let offset = 0;
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    fileChannel.send(e.target.result);
+    offset += e.target.result.byteLength;
+    document.getElementById('fileProgress').textContent = `Sending file: ${file.name} (${offset}/${file.size})`;
+    if (offset < file.size) {
+      readSlice(offset);
+    } else {
+      document.getElementById('fileProgress').textContent = 'File sent';
+    }
+  };
+
+  function readSlice(o) {
+    const slice = file.slice(o, o + chunkSize);
+    reader.readAsArrayBuffer(slice);
+  }
+
+  readSlice(0);
+};
+</script>
