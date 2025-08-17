@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>AGZ: AES-256-GCM + Gzip</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Helvetica, Arial;
+         margin: 24px; line-height: 1.4; }
+  h2 { margin: 0 0 12px; }
+  fieldset { margin: 12px 0 18px; border: 1px solid #8883; border-radius: 12px; padding: 12px; }
+  legend { padding: 0 6px; }
+  .row { display: flex; gap: 12px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  label { min-width: 120px; }
+  input[type="file"] { max-width: 360px; }
+  input[type="number"], input[type="password"], input[type="text"] { padding: 6px 8px; border-radius: 8px; border: 1px solid #8884; }
+  button { padding: 8px 14px; border-radius: 10px; border: 1px solid #8884; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  progress { width: 320px; height: 16px; }
+  #status { margin-left: 10px; opacity: .8; }
+  .hint { font-size: .9em; opacity: .8; }
+  .tag { font-size: .8em; padding: 2px 6px; border: 1px solid #8884; border-radius: 999px; }
+</style>
+</head>
+<body>
+  <h2>AGZ: AES-256-GCM + Gzip (streamed, browser-friendly)</h2>
+  <div class="hint">• Encrypted container format: custom <span class="tag">.agz</span>; works for in-browser cross-platform encryption/decryption.</div>
+
+  <fieldset>
+    <legend>Input</legend>
+    <div class="row"><label>Select file</label><input type="file" id="inFile"/></div>
+    <div class="row"><label>Password</label><input type="password" id="password" placeholder="Password for encryption/decryption"/></div>
+    <div class="row"><label>Output file name</label><input type="text" id="outName" placeholder="Leave empty to auto-generate"/></div>
+    <div class="row"><label>Frame size</label><input type="number" id="frameSize" value="65536"/> bytes (recommended 64 KiB)</div>
+    <div class="row"><label>PBKDF2 iterations</label><input type="number" id="kdfIter" value="200000"/></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Actions</legend>
+    <div class="row">
+      <button id="btnEnc">Compress + Encrypt (to .agz)</button>
+      <button id="btnDec">Decrypt + Decompress (.agz → file)</button>
+      <span id="status"></span>
+    </div>
+    <div class="row"><label>Progress</label><progress id="prog" value="0" max="1"></progress></div>
+  </fieldset>
+
+<script>
+/* ========= Constants & Helpers ========= */
+const MAGIC = new TextEncoder().encode("AGZ1");
+const VERSION = 1;
+const KDF_TAG = new TextEncoder().encode("P2"); // PBKDF2
+const TAGLEN = 16; // AES-GCM tag bytes
+const te = new TextEncoder(), td = new TextDecoder();
+
+const u32 = (n)=>{ const b=new Uint8Array(4); new DataView(b.buffer).setUint32(0,n,true); return b; };
+const u16 = (n)=>{ const b=new Uint8Array(2); new DataView(b.buffer).setUint16(0,n,true); return b; };
+const u8  = (n)=>new Uint8Array([n&0xff]);
+const cat = (...arrs)=>{ let len=0; for(const a of arrs) len+=a.length;
+  const out=new Uint8Array(len); let o=0; for(const a of arrs){ out.set(a,o); o+=a.length; } return out; };
+const toU8 = (x)=> x instanceof Uint8Array ? x : new Uint8Array(x);
+
+/* ========= KDF ========= */
+async function deriveKeyFromPassword(password, salt, iterations){
+  const baseKey = await crypto.subtle.importKey('raw', te.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', hash:'SHA-256', salt, iterations },
+    baseKey,
+    { name:'AES-GCM', length:256 },
+    false, ['encrypt','decrypt']
+  );
+}
+
+/* ========= Header ========= */
+function buildHeader({salt, iter, noncePrefix, frameSize}){
+  return cat(
+    MAGIC,                       // 4
+    u8(VERSION),                 // 1
+    KDF_TAG,                     // 2
+    u16(salt.length),            // 2
+    salt,                        // saltLen
+    u32(iter),                   // 4
+    noncePrefix,                 // 8
+    u32(frameSize),              // 4
+    u32(0)                       // reserved
+  );
+}
+function parseHeader(u8a){
+  const dv = new DataView(u8a.buffer, u8a.byteOffset, u8a.byteLength);
+  if (td.decode(u8a.subarray(0,4)) !== 'AGZ1') throw new Error('Bad magic');
+  const ver = dv.getUint8(4);
+  if (ver !== VERSION) throw new Error(`Unsupported version ${ver}`);
+  const kdfTag = td.decode(u8a.subarray(5,7));
+  if (kdfTag !== 'P2') throw new Error('Unsupported KDF');
+  const saltLen = dv.getUint16(7,true);
+  let off = 9;
+  const salt = u8a.subarray(off, off+saltLen); off += saltLen;
+  const iter = dv.getUint32(off,true); off += 4;
+  const noncePrefix = u8a.subarray(off, off+8); off += 8;
+  const frameSize = dv.getUint32(off,true); off += 4;
+  /* reserved */ off += 4;
+  return { salt, iter, noncePrefix, frameSize, headerBytes: off };
+}
+
+/* ========= Frame Chunking ========= */
+function frameChunker(frameSize){
+  let buf = new Uint8Array(0);
+  return new TransformStream({
+    transform(chunk, controller){
+      chunk = toU8(chunk);
+      const tmp = new Uint8Array(buf.length + chunk.length);
+      tmp.set(buf,0); tmp.set(chunk, buf.length);
+      buf = tmp;
+      let offset = 0;
+      while (buf.length - offset >= frameSize) {
+        controller.enqueue(buf.subarray(offset, offset+frameSize));
+        offset += frameSize;
+      }
+      buf = buf.subarray(offset);
+    },
+    flush(controller){
+      if (buf.length) controller.enqueue(buf);
+    }
+  });
+}
+
+/* ========= Encrypt/Decrypt per frame ========= */
+function encryptFrames(key, noncePrefix, progressRef, progressEl){
+  let counter = 0;
+  return new TransformStream({
+    async transform(plainFrame, controller){
+      const ctrBytes = u32(counter++);
+      const iv = cat(noncePrefix, ctrBytes);
+      const aad = cat(MAGIC, u8(VERSION), ctrBytes, u32(plainFrame.length));
+      const ct = new Uint8Array(await crypto.subtle.encrypt(
+        { name:'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, plainFrame
+      ));
+      const isLast = 0; 
+      controller.enqueue(cat(u8(isLast), u32(counter-1), u32(plainFrame.length), u32(ct.length), ct));
+
+      if (progressRef.total) {
+        progressRef.done += plainFrame.length;
+        progressEl.value = Math.min(1, progressRef.done / progressRef.total);
+      }
+    },
+    flush(controller){
+      controller.enqueue(cat(u8(1), u32(0xffffffff), u32(0), u32(0))); // End frame
+    }
+  });
+}
+function decryptFrames(key, noncePrefix){
+  let ended = false;
+  let stash = new Uint8Array(0);
+  const need = (n)=> stash.length >= n;
+  const take = (n)=>{ const out = stash.subarray(0,n); stash = stash.subarray(n); return out; };
+  return new TransformStream({
+    async transform(chunk, controller){
+      if (ended) return;
+      stash = cat(stash, toU8(chunk));
+      while (true) {
+        if (!need(13)) break;
+        const isLast = stash[0];
+        const dv = new DataView(stash.buffer, stash.byteOffset+1, 12);
+        const counter = dv.getUint32(0,true);
+        const plainLen = dv.getUint32(4,true);
+        const ctLen = dv.getUint32(8,true);
+        if (isLast === 1) { take(13); ended = true; break; }
+        const needed = 13 + ctLen;
+        if (!need(needed)) break;
+        take(13);
+        const ct = take(ctLen);
+        const iv = cat(noncePrefix, u32(counter));
+        const aad = cat(MAGIC, u8(VERSION), u32(counter), u32(plainLen));
+        const plain = new Uint8Array(await crypto.subtle.decrypt(
+          { name:'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, ct
+        ));
+        if (plain.length !== plainLen) throw new Error('Plain length mismatch');
+        controller.enqueue(plain);
+      }
+    }
+  });
+}
+
+/* ========= Export strategy ========= */
+
+function preferDirectSave() {
+  return typeof window.showSaveFilePicker === 'function';
+}
+
+async function createDirectSink(suggestedName) {
+  const handle = await window.showSaveFilePicker({ suggestedName });
+  const writable = await handle.createWritable();
+  return {
+    kind: 'picker',
+    write: chunk => writable.write(chunk),
+    close: () => writable.close(),
+    finalize: async () => ({ ok: true, name: suggestedName })
+  };
+}
+
+async function createBlobSink(suggestedName) {
+  const chunks = [];
+  return {
+    kind: 'blob',
+    write: chunk => chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)),
+    close: async () => {},
+    finalize: async () => {
+      const blob = new Blob(chunks, { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggestedName || ('agz-' + Date.now() + '.bin');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return { ok: true, name: a.download, downloaded: true };
+    }
+  };
+}
+
+async function createSink(suggestedName) {
+  if (preferDirectSave()) return createDirectSink(suggestedName);
+  return createBlobSink(suggestedName);
+}
+
+/* ========= UI ========= */
+const $ = (id)=>document.getElementById(id);
+function setStatus(t){ $('status').textContent = t || ''; }
+function disableUI(dis){ $('btnEnc').disabled = dis; $('btnDec').disabled = dis; }
+
+/* ========= Main: Encrypt ========= */
+$('btnEnc').addEventListener('click', async ()=>{
+  try{
+    const file = $('inFile').files[0];
+    if(!file) return alert('Please select a file to encrypt');
+    const password = $('password').value || '';
+    if(!password) return alert('Please enter a password');
+    const frameSize = Math.max(1024, +$('frameSize').value|0);
+    const iter = Math.max(10000, +$('kdfIter').value|0);
+    const prog = $('prog'); prog.value = 0;
+    disableUI(true); setStatus('Deriving key…');
+
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const noncePrefix = crypto.getRandomValues(new Uint8Array(8));
+    const key = await deriveKeyFromPassword(password, salt, iter);
+
+    const outNameInput = $('outName').value.trim();
+    const baseName = outNameInput || (file.name + '.agz');
+    const sink = await createSink(baseName);
+
+    await sink.write(buildHeader({ salt, iter, noncePrefix, frameSize }));
+
+    setStatus('Compressing + Encrypting… (keep page in foreground)');
+    const progressRef = { total: file.size, done: 0 };
+
+    const gzip = new CompressionStream('gzip');
+    const chunker = frameChunker(frameSize);
+    const enc = encryptFrames(key, noncePrefix, progressRef, prog);
+
+    await file.stream()
+      .pipeThrough(gzip)
+      .pipeThrough(chunker)
+      .pipeThrough(enc)
+      .pipeTo(new WritableStream({ write: (chunk)=> sink.write(chunk) }));
+
+    await sink.close();
+    await sink.finalize();
+    prog.value = 1; setStatus('Done ✅');
+  }catch(err){
+    console.error(err);
+    alert('Error: ' + err.message);
+    setStatus('Error');
+  }finally{
+    disableUI(false);
+  }
+});
+
+/* ========= Main: Decrypt ========= */
+$('btnDec').addEventListener('click', async ()=>{
+  try{
+    const file = $('inFile').files[0];
+    if(!file) return alert('Please select a .agz file');
+    const password = $('password').value || '';
+    if(!password) return alert('Please enter the password used for encryption');
+    const prog = $('prog'); prog.value = 0;
+    disableUI(true); setStatus('Parsing header…');
+
+    const headBuf = new Uint8Array(await file.slice(0, 256).arrayBuffer());
+    const { salt, iter, noncePrefix, frameSize, headerBytes } = parseHeader(headBuf);
+    const key = await deriveKeyFromPassword(password, salt, iter);
+
+    const outNameInput = $('outName').value.trim();
+    const guessedName = file.name.replace(/\.agz$/i,'') || (file.name + '.out');
+    const baseName = outNameInput || guessedName;
+    const sink = await createSink(baseName);
+
+    setStatus('Decrypting + Decompressing… (keep page in foreground)');
+    let readBytes = headerBytes; const total = file.size;
+
+    const gunzip = new DecompressionStream('gzip');
+    const dec = decryptFrames(key, noncePrefix);
+
+    await file.slice(headerBytes).stream()
+      .pipeThrough(dec)
+      .pipeThrough(gunzip)
+      .pipeTo(new WritableStream({
+        async write(chunk){
+          readBytes += chunk.length;
+          prog.value = Math.min(1, readBytes / total);
+          await sink.write(chunk);
+        }
+      }));
+
+    await sink.close();
+    await sink.finalize();
+    prog.value = 1; setStatus('Done ✅');
+  }catch(err){
+    console.error(err);
+    alert('Error: ' + err.message);
+    setStatus('Error');
+  }finally{
+    disableUI(false);
+  }
+});
+</script>
+</body>
+</html>
