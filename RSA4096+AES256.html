@@ -5,7 +5,7 @@
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; connect-src 'none'">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RSA-4096 OAEP Encryption/Decryption (Enhanced)</title>
+  <title>RSA-4096 Hybrid (OAEP + AES-256-GCM)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -21,21 +21,23 @@
       height: 120px;
     }
     .output {
-      background-color: #f8f9fa;
-      border: 1px solid #ddd;
-      padding: 10px;
-      margin-top: 10px;
-      height: 150px;
-      overflow-y: auto;
-      white-space: pre-wrap;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        padding: 10px;
+        margin-top: 10px;
+        height: 150px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-family: ui-monospace, monospace;
     }
   </style>
 </head>
 <body>
-  <h1>RSA-4096 OAEP Encryption/Decryption (Enhanced)</h1>
+  <h1>RSA-4096 Hybrid (OAEP + AES-256-GCM)</h1>
 
-  <button id="generateBtn" onclick="generateKeys()">Generate RSA-4096 Key Pair</button>
-
+  <button id="generateBtn" onclick="generateKeys()">Generate RSA-4096 Key Pair</button>  
   <h3>Public Key (PEM format)</h3>
   <textarea id="publicKey" placeholder="Public key will appear here..."></textarea>
   <button onclick="copyText('publicKey')">Copy Public Key</button>
@@ -61,6 +63,8 @@
   <button onclick="copyDiv('decryptedMessage')">Copy Decrypted Text</button>
 
   <script>
+    const OAEP_LABEL = new TextEncoder().encode("hyb:v1");
+
     let cryptoKeyPair;
 
     async function generateKeys() {
@@ -77,7 +81,7 @@
           hash: "SHA-256"
         },
         true,
-        ["encrypt", "decrypt"]
+        ["wrapKey", "unwrapKey"]
       );
 
       const publicKey = await window.crypto.subtle.exportKey("spki", cryptoKeyPair.publicKey);
@@ -86,11 +90,34 @@
       document.getElementById('publicKey').value = pemEncode(publicKey, "PUBLIC KEY");
       document.getElementById('privateKey').value = pemEncode(privateKey, "PRIVATE KEY");
 
-      generateBtn.innerText = '✔️ Keys Generated!';
+      generateBtn.innerText = ' Keys Generated!';
       setTimeout(() => {
         generateBtn.innerText = originalText;
         generateBtn.disabled = false;
       }, 1500);
+    }
+
+    function concatBytes(...arrs){
+      const total = arrs.reduce((a,b)=>a + b.length, 0);
+      const out = new Uint8Array(total);
+      let off = 0;
+      for(const a of arrs){ out.set(a, off); off += a.length; }
+      return out;
+    }
+    function buildHeader(iv, wrappedLen){
+      const hdr = new Uint8Array(12 + 2);
+      hdr.set(iv, 0);
+      hdr[12] = (wrappedLen >>> 8) & 0xff;
+      hdr[13] = (wrappedLen       ) & 0xff;
+      return hdr;
+    }
+
+function parseHeader(u8){
+     if(u8.length < 14) throw new Error('Ciphertext too short');
+     const iv = u8.slice(0, 12);
+     const wrappedLen = (u8[12] << 8) | u8[13];
+     const off = 14;
+     return {iv, wrappedLen, off};
     }
 
     async function encryptText() {
@@ -101,12 +128,30 @@
           alert('Please provide plaintext and public key.');
           return;
         }
-
-        const publicKey = await importKey(publicKeyPem, "public");
         const enc = new TextEncoder();
-        const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, enc.encode(plaintext));
+        const publicKey = await importKey(publicKeyPem, "public");
 
-        const base64 = arrayBufferToBase64(encrypted);
+        const aesKey = await crypto.subtle.generateKey({name:"AES-GCM", length:256}, true, ["encrypt","decrypt"]);
+
+        const wrapped = await crypto.subtle.wrapKey(
+          "raw", aesKey, publicKey,
+          {name:"RSA-OAEP", label: OAEP_LABEL}
+        );
+        const wrappedU8 = new Uint8Array(wrapped);
+
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const header = buildHeader(iv, wrappedU8.length);
+        const aad = header;
+
+        const ct = await crypto.subtle.encrypt(
+          {name:"AES-GCM", iv, additionalData: aad, tagLength:128},
+          aesKey,
+          enc.encode(plaintext)
+        );
+
+        const out = concatBytes(header, wrappedU8, new Uint8Array(ct));
+        const base64 = arrayBufferToBase64(out.buffer);
+
         document.getElementById('encryptedMessage').textContent = base64;
         document.getElementById('ciphertext').value = base64;
       } catch (err) {
@@ -122,12 +167,31 @@
           alert('Please provide encrypted text and private key.');
           return;
         }
-
+        const dec = new TextDecoder();
         const privateKey = await importKey(privateKeyPem, "private");
-        const ciphertext = base64ToArrayBuffer(ciphertextBase64);
 
-        const decrypted = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, ciphertext);
-        document.getElementById('decryptedMessage').textContent = new TextDecoder().decode(decrypted);
+        const blob = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
+        const {iv, wrappedLen, off} = parseHeader(blob);
+        const wrapped = blob.slice(off, off + wrappedLen);
+        const body    = blob.slice(off + wrappedLen);
+
+        const header = buildHeader(iv, wrappedLen);
+        const aad = header;
+
+        const aesKey = await crypto.subtle.unwrapKey(
+          "raw", wrapped.buffer.slice(wrapped.byteOffset, wrapped.byteOffset + wrapped.byteLength), privateKey,
+          {name:"RSA-OAEP", label: OAEP_LABEL},
+          {name:"AES-GCM", length:256},
+          false, ["decrypt"]
+        );
+
+        const pt = await crypto.subtle.decrypt(
+          {name:"AES-GCM", iv, additionalData: aad, tagLength:128},
+          aesKey,
+          body
+        );
+
+        document.getElementById('decryptedMessage').textContent = dec.decode(pt);
       } catch (err) {
         document.getElementById('decryptedMessage').textContent = 'Decryption failed: ' + err.message;
       }
@@ -142,25 +206,37 @@
     async function importKey(pem, type) {
       const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
       const raw = base64ToArrayBuffer(b64);
-
       if (type === "public") {
-        return await window.crypto.subtle.importKey("spki", raw, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+        return await window.crypto.subtle.importKey(
+          "spki",
+          raw,
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          true,
+          ["wrapKey"]
+        );
       } else {
-        return await window.crypto.subtle.importKey("pkcs8", raw, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+        return await window.crypto.subtle.importKey(
+          "pkcs8",
+          raw,
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          true,
+          ["unwrapKey"]
+        );
       }
     }
 
     function arrayBufferToBase64(buffer) {
       const bytes = new Uint8Array(buffer);
       let binary = '';
-      for (let b of bytes) {
-        binary += String.fromCharCode(b);
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
       }
       return btoa(binary);
     }
 
     function base64ToArrayBuffer(base64) {
-      const binary = atob(base64);
+      const binary = atob(base64.replace(/\s+/g,''));
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
