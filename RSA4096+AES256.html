@@ -38,29 +38,30 @@
   <h1>RSA-4096 Hybrid (OAEP + AES-256-GCM)</h1>
 
   <button id="generateBtn" onclick="generateKeys()">Generate RSA-4096 Key Pair</button>  
+  <button onclick="clearAll()">Clear All</button>
   <h3>Public Key (PEM format)</h3>
   <textarea id="publicKey" placeholder="Public key will appear here..."></textarea>
   <button onclick="copyText('publicKey')">Copy Public Key</button>
+  <button onclick="clearField('publicKey')">Clear</button>
 
   <h3>Private Key (PEM format)</h3>
   <textarea id="privateKey" placeholder="Private key will appear here..."></textarea>
   <button onclick="copyText('privateKey')">Copy Private Key</button>
+  <button onclick="clearField('privateKey')">Clear</button>
 
   <h3>Text to Encrypt</h3>
   <textarea id="plaintext" placeholder="Enter text to encrypt..."></textarea>
   <button onclick="encryptText()">Encrypt</button>
-
-  <h3>Encrypted Text (Base64)</h3>
-  <div class="output" id="encryptedMessage"></div>
-  <button onclick="copyDiv('encryptedMessage')">Copy Encrypted Text</button>
+  <button onclick="clearField('plaintext')">Clear</button>
 
   <h3>Text to Decrypt</h3>
   <textarea id="ciphertext" placeholder="Paste encrypted text here..."></textarea>
   <button onclick="decryptText()">Decrypt</button>
+  <button onclick="clearField('ciphertext')">Clear</button>
 
-  <h3>Decrypted Message</h3>
-  <div class="output" id="decryptedMessage"></div>
-  <button onclick="copyDiv('decryptedMessage')">Copy Decrypted Text</button>
+  <h3 id="outputLabel">Output</h3>
+  <textarea id="outputMessage" class="output" readonly placeholder="Output will appear here..."></textarea>
+  <button onclick="copyText('outputMessage')">Copy Output</button>
 
   <script>
     const OAEP_LABEL = new TextEncoder().encode("hyb:v1");
@@ -152,10 +153,12 @@ function parseHeader(u8){
         const out = concatBytes(header, wrappedU8, new Uint8Array(ct));
         const base64 = arrayBufferToBase64(out.buffer);
 
-        document.getElementById('encryptedMessage').textContent = base64;
+        document.getElementById('outputMessage').value = base64;
+        document.getElementById('outputLabel').textContent = 'Encrypted Text (Base64)';
         document.getElementById('ciphertext').value = base64;
       } catch (err) {
-        document.getElementById('encryptedMessage').textContent = 'Encryption failed: ' + err.message;
+        document.getElementById('outputMessage').value = 'Encryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
       }
     }
 
@@ -191,9 +194,11 @@ function parseHeader(u8){
           body
         );
 
-        document.getElementById('decryptedMessage').textContent = dec.decode(pt);
+        document.getElementById('outputMessage').value = dec.decode(pt);
+        document.getElementById('outputLabel').textContent = 'Decrypted Message';
       } catch (err) {
-        document.getElementById('decryptedMessage').textContent = 'Decryption failed: ' + err.message;
+        document.getElementById('outputMessage').value = 'Decryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
       }
     }
 
@@ -254,14 +259,17 @@ function parseHeader(u8){
       }
     }
 
-    async function copyDiv(id) {
-      const text = document.getElementById(id).textContent;
-      try {
-        await navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
-      } catch (err) {
-        console.error('Copy failed:', err);
-      }
+    function clearField(id) {
+      document.getElementById(id).value = '';
+    }
+
+    function clearAll() {
+      document.getElementById('publicKey').value = '';
+      document.getElementById('privateKey').value = '';
+      document.getElementById('plaintext').value = '';
+      document.getElementById('ciphertext').value = '';
+      document.getElementById('outputMessage').value = '';
+      document.getElementById('outputLabel').textContent = 'Output';
     }
   </script>
 </body>
