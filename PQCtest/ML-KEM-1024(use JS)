@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hybrid ML-KEM-1024 + P-256 (HKDF + AES-256-GCM)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; connect-src 'none'">
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  textarea, button { width: 100%; margin: 10px 0; padding: 10px; font-size: 16px; }
+  textarea { height: 120px; }
+  .output { background-color: #f8f9fa; border: 1px solid #ddd; padding: 10px; margin-top: 10px; height: 150px; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+  <h1>Hybrid ML-KEM-1024 + P-256 (HKDF + AES-256-GCM)</h1>
+
+  <button id="generateBtn" onclick="generateKeys()">Generate Hybrid Key Pair</button>
+  <button onclick="clearAll()">Clear All</button>
+
+  <h3>Public Key (Base64)</h3>
+  <textarea id="publicKey" placeholder="Public key will appear here..."></textarea>
+  <button onclick="copyText('publicKey')">Copy Public Key</button>
+  <button onclick="clearField('publicKey')">Clear</button>
+
+  <h3>Private Key (Base64)</h3>
+  <textarea id="privateKey" placeholder="Private key will appear here..."></textarea>
+  <button onclick="copyText('privateKey')">Copy Private Key</button>
+  <button onclick="clearField('privateKey')">Clear</button>
+
+  <h3>Text to Encrypt</h3>
+  <textarea id="plaintext" placeholder="Enter text to encrypt..."></textarea>
+  <button onclick="encryptText()">Encrypt</button>
+  <button onclick="clearField('plaintext')">Clear</button>
+
+  <h3>Text to Decrypt</h3>
+  <textarea id="ciphertext" placeholder="Paste encrypted text here..."></textarea>
+  <button onclick="decryptText()">Decrypt</button>
+  <button onclick="clearField('ciphertext')">Clear</button>
+
+  <h3 id="outputLabel">Output</h3>
+  <textarea id="outputMessage" class="output" readonly placeholder="Output will appear here..."></textarea>
+  <button onclick="copyText('outputMessage')">Copy Output</button>
+
+  <script src="./noble-post-quantum.js"></script>
+  <script>
+    function getKem() {
+      const kem = (globalThis.noblePostQuantum && globalThis.noblePostQuantum.ml_kem1024) || globalThis.ml_kem1024;
+      if (!kem) throw new Error('noble-post-quantum not loaded or not a standalone build');
+      if (!globalThis.crypto || !globalThis.crypto.getRandomValues) throw new Error('Web Crypto API not available');
+      return kem;
+    }
+    function concatBytes() {
+      const arrs = Array.from(arguments);
+      const total = arrs.reduce((a,b)=>a + b.length, 0);
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const a of arrs) { out.set(a, off); off += a.length; }
+      return out;
+    }
+    function utf8(s){ return new TextEncoder().encode(s); }
+    function toBE16(n){ return new Uint8Array([(n>>>8)&255, n&255]); }
+    function fromBE16(hi, lo){ return ((hi&255)<<8) | (lo&255); }
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+    function base64ToArrayBuffer(base64) {
+      const binary = atob(base64.replace(/\s+/g,''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
+    }
+    function serializeHybridPublic(kemPub, ecPubRaw){
+      const a = toBE16(kemPub.length);
+      const b = toBE16(ecPubRaw.length);
+      return concatBytes(a, kemPub, b, ecPubRaw);
+    }
+    function serializeHybridPrivate(kemSec, ecPrivPkcs8){
+      const a = toBE16(kemSec.length);
+      const b = toBE16(ecPrivPkcs8.length);
+      return concatBytes(a, kemSec, b, ecPrivPkcs8);
+    }
+    function parseHybridPublic(u8){
+      if (u8.length < 2) throw new Error('Invalid public key');
+      const kemLen = fromBE16(u8[0], u8[1]);
+      if (u8.length < 2 + kemLen + 2) throw new Error('Invalid public key');
+      const kemPub = u8.slice(2, 2 + kemLen);
+      const p = 2 + kemLen;
+      const ecLen = fromBE16(u8[p], u8[p+1]);
+      if (u8.length !== p + 2 + ecLen) throw new Error('Invalid public key');
+      const ecPubRaw = u8.slice(p + 2);
+      return { kemPub, ecPubRaw };
+    }
+    function parseHybridPrivate(u8){
+      if (u8.length < 2) throw new Error('Invalid private key');
+      const kemLen = fromBE16(u8[0], u8[1]);
+      if (u8.length < 2 + kemLen + 2) throw new Error('Invalid private key');
+      const kemSec = u8.slice(2, 2 + kemLen);
+      const p = 2 + kemLen;
+      const ecLen = fromBE16(u8[p], u8[p+1]);
+      if (u8.length !== p + 2 + ecLen) throw new Error('Invalid private key');
+      const ecPrivPkcs8 = u8.slice(p + 2);
+      return { kemSec, ecPrivPkcs8 };
+    }
+    function buildHeader(iv, kemCtLen, salt, epkLen){
+      const hdr = new Uint8Array(12 + 2 + 16 + 2);
+      hdr.set(iv, 0);
+      hdr[12] = (kemCtLen>>>8)&255;
+      hdr[13] = kemCtLen&255;
+      hdr.set(salt, 14);
+      const q = 30;
+      hdr[q]   = (epkLen>>>8)&255;
+      hdr[q+1] = epkLen&255;
+      return hdr;
+    }
+    function parseHeader(u8){
+      if (u8.length < 12+2+16+2) throw new Error('Ciphertext too short');
+      const iv = u8.slice(0,12);
+      const kemCtLen = (u8[12]<<8) | u8[13];
+      const salt = u8.slice(14,30);
+      const epkLen = (u8[30]<<8) | u8[31];
+      const off = 32;
+      return {iv, kemCtLen, salt, epkLen, off};
+    }
+    async function hkdfAesKey(ikmBytes, salt, infoBytes) {
+      const ikm = await crypto.subtle.importKey("raw", ikmBytes, "HKDF", false, ["deriveKey"]);
+      const key = await crypto.subtle.deriveKey(
+        { name: "HKDF", hash: "SHA-256", salt, info: infoBytes },
+        ikm,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+      return key;
+    }
+    async function generateKeys() {
+      const btn = document.getElementById('generateBtn');
+      const original = btn.innerText;
+      btn.disabled = true;
+      btn.innerText = 'Generating...';
+      try {
+        const kem = getKem();
+        const seed = crypto.getRandomValues(new Uint8Array(64));
+        const kemKeys = kem.keygen(seed);
+        const ecKeys = await crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']);
+        const ecPubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', ecKeys.publicKey));
+        const ecPrivPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', ecKeys.privateKey));
+        const pubPacked = serializeHybridPublic(new Uint8Array(kemKeys.publicKey.buffer), ecPubRaw);
+        const secPacked = serializeHybridPrivate(new Uint8Array(kemKeys.secretKey.buffer), ecPrivPkcs8);
+        document.getElementById('publicKey').value  = arrayBufferToBase64(pubPacked.buffer);
+        document.getElementById('privateKey').value = arrayBufferToBase64(secPacked.buffer);
+        btn.innerText = 'Keys Generated!';
+      } catch (err) {
+        alert('Key generation failed: ' + err.message);
+        console.error(err);
+        btn.innerText = 'Generation Failed';
+      } finally {
+        setTimeout(()=>{ btn.innerText = original; btn.disabled = false; }, 1500);
+      }
+    }
+    async function encryptText() {
+      try {
+        const kem = getKem();
+        const plaintext = document.getElementById('plaintext').value;
+        const publicKeyBase64 = document.getElementById('publicKey').value;
+        if (!plaintext || !publicKeyBase64) { alert('Please provide plaintext and public key.'); return; }
+        const pubPacked = new Uint8Array(base64ToArrayBuffer(publicKeyBase64));
+        const parsedPub = parseHybridPublic(pubPacked);
+        const kemPub = parsedPub.kemPub;
+        const ecPubRaw = parsedPub.ecPubRaw;
+        const recipientEcPub = await crypto.subtle.importKey('raw', ecPubRaw, {name:'ECDH', namedCurve:'P-256'}, false, []);
+        const eph = await crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']);
+        const ephPubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey));
+        const ecdhBits = new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH', public: recipientEcPub}, eph.privateKey, 256));
+        const r = kem.encapsulate(kemPub);
+        const kemCt = r.cipherText;
+        const kemSS = r.sharedSecret;
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const header = buildHeader(iv, kemCt.length, salt, ephPubRaw.length);
+        const info = concatBytes(utf8('HYBRID-MLKEM1024+P256+AESGCM v1'), header, new Uint8Array(kemCt), ephPubRaw);
+        const ikm = concatBytes(new Uint8Array(kemSS), ecdhBits);
+        const aesKey = await hkdfAesKey(ikm, salt, info);
+        const enc = new TextEncoder();
+        const aad = header;
+        const encrypted = await crypto.subtle.encrypt({name: "AES-GCM", iv, additionalData: aad, tagLength: 128}, aesKey, enc.encode(plaintext));
+        const out = concatBytes(header, new Uint8Array(kemCt), ephPubRaw, new Uint8Array(encrypted));
+        const base64 = arrayBufferToBase64(out.buffer);
+        document.getElementById('outputMessage').value = base64;
+        document.getElementById('outputLabel').textContent = 'Encrypted Text (Base64)';
+        document.getElementById('ciphertext').value = base64;
+      } catch (err) {
+        document.getElementById('outputMessage').value = 'Encryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
+        console.error(err);
+      }
+    }
+    async function decryptText() {
+      try {
+        const kem = getKem();
+        const ciphertextBase64 = document.getElementById('ciphertext').value;
+        const privateKeyBase64 = document.getElementById('privateKey').value;
+        if (!ciphertextBase64 || !privateKeyBase64) { alert('Please provide encrypted text and private key.'); return; }
+        const blob = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
+        const h = parseHeader(blob);
+        const minLen = h.off + h.kemCtLen + h.epkLen + 16;
+        if (blob.length < minLen) throw new Error('Ciphertext truncated');
+        const kemCt = blob.slice(h.off, h.off + h.kemCtLen);
+        const epkRaw = blob.slice(h.off + h.kemCtLen, h.off + h.kemCtLen + h.epkLen);
+        const body = blob.slice(h.off + h.kemCtLen + h.epkLen);
+        const header = buildHeader(h.iv, h.kemCtLen, h.salt, h.epkLen);
+        const privPacked = new Uint8Array(base64ToArrayBuffer(privateKeyBase64));
+        const parsedPriv = parseHybridPrivate(privPacked);
+        const kemSec = parsedPriv.kemSec;
+        const ecPrivPkcs8 = parsedPriv.ecPrivPkcs8;
+        const ecPriv = await crypto.subtle.importKey('pkcs8', ecPrivPkcs8, {name:'ECDH', namedCurve:'P-256'}, false, ['deriveBits']);
+        const senderEphPub = await crypto.subtle.importKey('raw', epkRaw, {name:'ECDH', namedCurve:'P-256'}, false, []);
+        const ecdhBits = new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH', public: senderEphPub}, ecPriv, 256));
+        const kemSS = kem.decapsulate(kemCt, kemSec);
+        const info = concatBytes(utf8('HYBRID-MLKEM1024+P256+AESGCM v1'), header, kemCt, epkRaw);
+        const ikm = concatBytes(new Uint8Array(kemSS), ecdhBits);
+        const aesKey = await hkdfAesKey(ikm, h.salt, info);
+        const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: h.iv, additionalData: header, tagLength: 128}, aesKey, body);
+        const dec = new TextDecoder();
+        document.getElementById('outputMessage').value = dec.decode(pt);
+        document.getElementById('outputLabel').textContent = 'Decrypted Message';
+      } catch (err) {
+        document.getElementById('outputMessage').value = 'Decryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
+        console.error(err);
+      }
+    }
+    async function copyText(id) {
+      const text = document.getElementById(id).value;
+      try { await navigator.clipboard.writeText(text); alert('Copied to clipboard!'); }
+      catch (err) { console.error('Copy failed:', err); }
+    }
+    function clearField(id) { document.getElementById(id).value = ''; }
+    function clearAll() {
+      document.getElementById('publicKey').value = '';
+      document.getElementById('privateKey').value = '';
+      document.getElementById('plaintext').value = '';
+      document.getElementById('ciphertext').value = '';
+      document.getElementById('outputMessage').value = '';
+      document.getElementById('outputLabel').textContent = 'Output';
+    }
+  </script>
+</body>
+</html>
