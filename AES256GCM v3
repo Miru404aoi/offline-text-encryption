@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AES-256-GCM Encryptor</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:20px;line-height:1.45;background:#fafafa}
+    h1{font-size:20px;margin:0 0 12px}
+    .row{margin:12px 0}
+    .label{font-weight:600;margin:6px 0 4px;display:block}
+    textarea,input,button{width:100%;font-size:15px;padding:10px;box-sizing:border-box;border-radius:6px;border:1px solid #ccc}
+    textarea{height:160px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .hint{color:#666;font-size:12.5px;margin-top:4px}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    button{background:#0060df;color:white;border:none;cursor:pointer;font-weight:600}
+    button:hover{background:#0050c0}
+    button.secondary{background:#666}
+    button.secondary:hover{background:#555}
+    .ok{color:#0a7d00;font-weight:600}
+    .err{color:#b00020;font-weight:600}
+    #status{margin-top:12px;font-weight:500}
+    .eye{position:absolute;right:10px;top:38px;cursor:pointer;user-select:none;font-size:18px}
+    .pwd-wrapper{position:relative}
+  </style>
+</head>
+<body>
+  <h1>AES-256-GCM Encryptor</h1>
+  <p style="color:#444;font-size:14px;margin:0 0 16px">Offline-only • No network access • Randomized ciphertext</p>
+
+  <div class="row">
+    <span class="label">Input (plaintext or ciphertext)</span>
+    <textarea id="io" class="mono" placeholder="Plaintext → Encrypt    Ciphertext (Base64URL) → Decrypt" spellcheck="false" autofocus></textarea>
+  </div>
+
+  <div class="cols">
+    <div class="row">
+      <span class="label">Password (high entropy, ≥ 32 characters recommended)</span>
+      <div class="pwd-wrapper">
+        <input id="pwd" type="password" class="mono" placeholder="Use only in a clean offline environment" autocomplete="new-password" spellcheck="false">
+        <span class="eye" id="eye">👁</span>
+      </div>
+    </div>
+    <div class="row">
+      <span class="label">PBKDF2 Iterations (default 200000)</span>
+      <input id="iters" type="number" class="mono" min="10000" max="5000000" step="1000" value="200000">
+      <div class="hint">Higher = slower but stronger. Value is stored in ciphertext.</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <span class="label">AAD (optional, must match exactly on both sides)</span>
+    <input id="aad" type="text" class="mono" placeholder="Leave empty if not needed">
+    <div class="hint">Additional authenticated data (binds context, not encrypted).</div>
+  </div>
+
+  <div class="cols">
+    <button id="encBtn">Encrypt (AES-256-GCM)</button>
+    <button id="decBtn">Decrypt (AES-256-GCM)</button>
+  </div>
+
+  <div class="cols" style="margin-top:8px">
+    <button id="copyBtn" class="secondary">Copy Output</button>
+    <button id="clearBtn" class="secondary">Clear All</button>
+  </div>
+
+  <div id="status" class="hint"></div>
+
+  <script>
+  const enc = new TextEncoder();
+  const dec = new TextDecoder('utf-8', { fatal: true });
+
+  function b64uEncode(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) {
+      s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    }
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
+  }
+
+  function b64uDecode(str) {
+    str = (str || '').replace(/[\r\n\s]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const bin = atob(str);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  function concat(...arrays) {
+    let total = 0;
+    for (const a of arrays) total += a.length;
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const a of arrays) {
+      result.set(a, offset);
+      offset += a.length;
+    }
+    return result;
+  }
+
+  const VER = 0x02;
+  const KDF_PBKDF2_SHA512 = 0x02;
+  const MIN_ITERS = 10000;
+  const MAX_ITERS = 5000000;
+
+  function buildHeader(iter, salt, iv) {
+    const hdr = new Uint8Array(34);
+    hdr.set(salt, 0);
+    hdr.set(iv, 16);
+    hdr[28] = VER;
+    hdr[29] = KDF_PBKDF2_SHA512;
+    new DataView(hdr.buffer, hdr.byteOffset + 30, 4).setUint32(0, iter >>> 0, true);
+    return hdr;
+  }
+
+  function parseHeader(u8) {
+    if (u8.length < 34) throw new Error('Ciphertext too short');
+    const salt = u8.slice(0, 16);
+    const iv   = u8.slice(16, 28);
+    const ver  = u8[28];
+    const kdf  = u8[29];
+    const iter = new DataView(u8.buffer, u8.byteOffset + 30, 4).getUint32(0, true);
+    const body = u8.slice(34);
+    if (ver !== VER) throw new Error('Unsupported version');
+    if (kdf !== KDF_PBKDF2_SHA512) throw new Error('Unsupported KDF');
+    if (iter < MIN_ITERS || iter > MAX_ITERS) throw new Error('Iterations out of range');
+    if (body.length < 16) throw new Error('Missing authentication tag');
+    return { iter, salt, iv, body };
+  }
+
+  async function deriveKey(passwordUtf8, salt, iterations) {
+    const pwdHash = new Uint8Array(await crypto.subtle.digest('SHA-512', passwordUtf8));
+    const baseKey = await crypto.subtle.importKey('raw', pwdHash, 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations, hash: 'SHA-512' },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    pwdHash.fill(0);
+    return key;
+  }
+
+  const $io = document.getElementById('io');
+  const $pwd = document.getElementById('pwd');
+  const $iters = document.getElementById('iters');
+  const $aad = document.getElementById('aad');
+  const $status = document.getElementById('status');
+  const $encBtn = document.getElementById('encBtn');
+  const $decBtn = document.getElementById('decBtn');
+  const $copyBtn = document.getElementById('copyBtn');
+  const $clearBtn = document.getElementById('clearBtn');
+  const $eye = document.getElementById('eye');
+
+  function setStatus(msg, ok = false) {
+    $status.textContent = msg;
+    $status.className = ok ? 'ok' : 'err';
+    if (!msg) $status.className = 'hint';
+  }
+
+  if (!window.crypto || !window.crypto.subtle) {
+    setStatus('This browser does not support WebCrypto (SubtleCrypto).', false);
+    $encBtn.disabled = true;
+    $decBtn.disabled = true;
+    $copyBtn.disabled = true;
+  }
+
+  $encBtn.onclick = async () => {
+    let salt, iv, pwdBytes, aadBytes;
+    try {
+      setStatus('');
+      const plain = $io.value;
+      const pwdStr = $pwd.value;
+      const aadStr = $aad.value;
+      let iters = parseInt($iters.value, 10) || 200000;
+      iters = Math.max(MIN_ITERS, Math.min(MAX_ITERS, iters));
+      if (!plain) throw new Error('Plaintext is empty');
+      if (!pwdStr) throw new Error('Password is required');
+
+      salt = crypto.getRandomValues(new Uint8Array(16));
+      iv   = crypto.getRandomValues(new Uint8Array(12));
+      pwdBytes = enc.encode(pwdStr);
+      aadBytes = aadStr ? enc.encode(aadStr) : null;
+
+      const key = await deriveKey(pwdBytes, salt, iters);
+
+      const alg = { name: 'AES-GCM', iv, tagLength: 128 };
+      if (aadBytes) alg.additionalData = aadBytes;
+
+      const encrypted = await crypto.subtle.encrypt(
+        alg,
+        key,
+        enc.encode(plain)
+      );
+
+      const payload = concat(buildHeader(iters, salt, iv), new Uint8Array(encrypted));
+      $io.value = b64uEncode(payload);
+      setStatus('Encryption successful', true);
+    } catch (e) {
+      setStatus('Encryption failed: ' + (e.message || e), false);
+    } finally {
+      if (salt) salt.fill(0);
+      if (iv) iv.fill(0);
+      if (pwdBytes) pwdBytes.fill(0);
+      if (aadBytes) aadBytes.fill(0);
+    }
+  };
+
+  $decBtn.onclick = async () => {
+    let salt, iv, pwdBytes, aadBytes;
+    try {
+      setStatus('');
+      const input = $io.value;
+      const pwdStr = $pwd.value;
+      const aadStr = $aad.value;
+      if (!input) throw new Error('Ciphertext is empty');
+      if (!pwdStr) throw new Error('Password is required');
+
+      const data = b64uDecode(input);
+      const parsed = parseHeader(data);
+      const iter = parsed.iter;
+      salt = parsed.salt;
+      iv = parsed.iv;
+      const body = parsed.body;
+
+      pwdBytes = enc.encode(pwdStr);
+      aadBytes = aadStr ? enc.encode(aadStr) : null;
+
+      const key = await deriveKey(pwdBytes, salt, iter);
+
+      const alg = { name: 'AES-GCM', iv, tagLength: 128 };
+      if (aadBytes) alg.additionalData = aadBytes;
+
+      const decrypted = await crypto.subtle.decrypt(
+        alg,
+        key,
+        body
+      );
+
+      const text = dec.decode(decrypted);
+      $io.value = text;
+      setStatus('Decryption successful (' + iter.toLocaleString() + ' iterations)', true);
+    } catch (e) {
+      if (e && (e.name === 'OperationError' || /OperationError/.test(String(e)))) {
+        setStatus('Decryption failed: wrong password or AAD', false);
+      } else {
+        setStatus('Decryption failed: ' + (e.message || e), false);
+      }
+    } finally {
+      if (salt) salt.fill(0);
+      if (iv) iv.fill(0);
+      if (pwdBytes) pwdBytes.fill(0);
+      if (aadBytes) aadBytes.fill(0);
+    }
+  };
+
+  $copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($io.value);
+      setStatus('Copied to clipboard', true);
+      setTimeout(() => setStatus(''), 1500);
+    } catch (e) {
+      setStatus('Copy failed: ' + (e.message || e), false);
+    }
+  };
+
+  $clearBtn.onclick = () => {
+    $io.value = '';
+    $pwd.value = '';
+    $aad.value = '';
+    setStatus('');
+  };
+
+  $eye.onclick = () => {
+    if ($pwd.type === 'password') {
+      $pwd.type = 'text';
+      $eye.textContent = '🙈';
+    } else {
+      $pwd.type = 'password';
+      $eye.textContent = '👁';
+    }
+  };
+  </script>
+</body>
+</html>
