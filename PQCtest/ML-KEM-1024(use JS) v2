@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quantum Hybrid Encryptor</title>
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               style-src 'unsafe-inline';
+               script-src 'self' 'unsafe-inline';
+               img-src 'self' data:;
+               base-uri 'none';
+               form-action 'none';
+               connect-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --bg: #fafafa;
+    --card: #ffffff;
+    --primary: #0060df;
+    --primary-dark: #0050c0;
+    --success: #0a7d00;
+    --danger: #b00020;
+    --text: #1a1a1a;
+    --text-light: #555;
+    --border: #e0e0e0;
+    --radius: 12px;
+    --shadow: 0 8px 32px rgba(0,0,0,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #f0f6fc;
+      --text-light: #8b949e;
+      --border: #30363d;
+      --primary: #58a6ff;
+      --primary-dark: #1f6feb;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    background: linear-gradient(135deg, #0060df, #58a6ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-align: center;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--text-light);
+    font-size: 15px;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 768px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    margin: 16px 0 8px;
+    font-size: 14px;
+    color: var(--text);
+  }
+  textarea,
+  input[type="text"] {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    background: var(--card);
+    color: var(--text);
+    resize: vertical;
+  }
+  textarea:focus,
+  input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,96,223,0.15);
+  }
+  .btn {
+    padding: 12px 20px;
+    margin: 8px 0;
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 15px;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+  .btn-primary:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+  }
+  .btn-success {
+    background: var(--success);
+    color: white;
+  }
+  .btn-success:hover {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+  }
+  .btn-danger {
+    background: var(--danger);
+    color: white;
+  }
+  .btn-danger:hover {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-light);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover {
+    background: rgba(255,255,255,0.06);
+  }
+  .btn-small {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+  .key-box {
+    background: rgba(0,96,223,0.05);
+    border: 1px dashed var(--primary);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+  }
+  .key-box.danger {
+    border-color: var(--danger);
+    background: rgba(217,48,37,0.08);
+  }
+  .copy-hint {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 12px;
+    color: var(--text-light);
+  }
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--text-light);
+    font-size: 13px;
+  }
+  .pq-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #238636, #30a14e);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .output {
+    background-color: #f8f9fa;
+    border: 1px solid var(--border);
+    padding: 10px;
+    height: 150px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    .output { background-color: #0b1015; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Quantum Hybrid Encryptor</h1>
+  <p class="subtitle">
+    ML-KEM-1024 + P-256 &nbsp;·&nbsp; HKDF-SHA512 &nbsp;·&nbsp; AES-256-GCM &nbsp;·&nbsp; Fully offline
+  </p>
+
+  <!-- Top controls -->
+  <div class="card">
+    <div class="grid-2">
+      <div>
+        <button class="btn btn-primary" id="generateBtn" onclick="generateKeys()" style="width:100%">
+          Generate New Key Pair
+        </button>
+      </div>
+      <div>
+        <button class="btn btn-ghost" onclick="clearAll()" style="width:100%">
+          Clear All Fields
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Public / Private keys -->
+  <div class="grid-2">
+    <div class="card">
+      <label for="publicKey">
+        Public Key
+        <span class="pq-badge">Share this</span>
+      </label>
+      <div class="key-box">
+        <textarea id="publicKey" rows="4" placeholder="Public key appears here..."></textarea>
+        <div class="copy-hint">Click “Copy Public” and send to your contact</div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px">
+        <button class="btn btn-small btn-primary" onclick="copyText('publicKey')">
+          Copy Public
+        </button>
+        <button class="btn btn-small btn-ghost" onclick="clearField('publicKey')">
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label for="privateKey">
+        Private Key
+        <span style="color:#d93025; font-size:12px; font-weight:600;">KEEP SECRET!</span>
+      </label>
+      <div class="key-box danger">
+        <textarea id="privateKey" rows="4" placeholder="Private key appears here..."></textarea>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px">
+        <button class="btn btn-small btn-danger" onclick="copyText('privateKey')">
+          Copy Private
+        </button>
+        <button class="btn btn-small btn-ghost" onclick="clearField('privateKey')">
+          Clear
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Encrypt -->
+  <div class="card">
+    <label for="plaintext">Message to Encrypt</label>
+    <textarea id="plaintext" rows="5" placeholder="Type or paste your secret message here..."></textarea>
+    <button class="btn btn-success" onclick="encryptText()" style="width:100%; margin-top:12px">
+      Encrypt Message (Quantum-Resistant)
+    </button>
+  </div>
+
+  <!-- Decrypt -->
+  <div class="card">
+    <label for="ciphertext">Received Ciphertext</label>
+    <textarea id="ciphertext" rows="5" placeholder="Paste the encrypted Base64 message here..."></textarea>
+    <button class="btn btn-primary" onclick="decryptText()" style="width:100%; margin-top:12px">
+      Decrypt Message
+    </button>
+  </div>
+
+  <!-- Output -->
+  <div class="card">
+    <label id="outputLabel" for="outputMessage">Output</label>
+    <textarea id="outputMessage" class="output" rows="6" readonly placeholder="Result will appear here..."></textarea>
+    <div style="display:flex; gap:10px; margin-top:12px">
+      <button class="btn btn-primary" onclick="copyText('outputMessage')">
+        Copy Result
+      </button>
+      <button class="btn btn-ghost" onclick="document.getElementById('outputMessage').value=''">
+        Clear Output
+      </button>
+    </div>
+  </div>
+
+  <div class="footer">
+     Post-Quantum Hybrid Encryption &bull; No data leaves your device &bull;
+    <span style="color:var(--primary)">100% offline &amp; private</span>
+  </div>
+</div>
+
+    <script src="./noble-post-quantum.js"></script>
+  <script>
+    const te = new TextEncoder();
+    const td = new TextDecoder();
+
+    function getKem() {
+      const kem = (globalThis.noblePostQuantum && globalThis.noblePostQuantum.ml_kem1024) || globalThis.ml_kem1024;
+      if (!kem) throw new Error('noble-post-quantum not loaded or not a standalone build');
+      if (!globalThis.crypto || !globalThis.crypto.getRandomValues || !globalThis.crypto.subtle) throw new Error('Web Crypto API not available');
+      return kem;
+    }
+    function concatBytes() {
+      const arrs = Array.from(arguments);
+      const total = arrs.reduce((a,b)=>a + b.length, 0);
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const a of arrs) { out.set(a, off); off += a.length; }
+      return out;
+    }
+    function utf8(s){ return te.encode(s); }
+    function toBE16(n){ return new Uint8Array([(n>>>8)&255, n&255]); }
+    function fromBE16(hi, lo){ return ((hi&255)<<8) | (lo&255); }
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+    function base64ToArrayBuffer(base64) {
+      const binary = atob(base64.replace(/\s+/g,''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
+    }
+    function serializeHybridPublic(kemPub, ecPubRaw){
+      const a = toBE16(kemPub.length);
+      const b = toBE16(ecPubRaw.length);
+      return concatBytes(a, kemPub, b, ecPubRaw);
+    }
+    function serializeHybridPrivate(kemSec, ecPrivPkcs8){
+      const a = toBE16(kemSec.length);
+      const b = toBE16(ecPrivPkcs8.length);
+      return concatBytes(a, kemSec, b, ecPrivPkcs8);
+    }
+    function parseHybridPublic(u8){
+      if (u8.length < 2) throw new Error('Invalid public key');
+      const kemLen = fromBE16(u8[0], u8[1]);
+      if (u8.length < 2 + kemLen + 2) throw new Error('Invalid public key');
+      const kemPub = u8.slice(2, 2 + kemLen);
+      const p = 2 + kemLen;
+      const ecLen = fromBE16(u8[p], u8[p+1]);
+      if (u8.length !== p + 2 + ecLen) throw new Error('Invalid public key');
+      const ecPubRaw = u8.slice(p + 2);
+      return { kemPub, ecPubRaw };
+    }
+    function parseHybridPrivate(u8){
+      if (u8.length < 2) throw new Error('Invalid private key');
+      const kemLen = fromBE16(u8[0], u8[1]);
+      if (u8.length < 2 + kemLen + 2) throw new Error('Invalid private key');
+      const kemSec = u8.slice(2, 2 + kemLen);
+      const p = 2 + kemLen;
+      const ecLen = fromBE16(u8[p], u8[p+1]);
+      if (u8.length !== p + 2 + ecLen) throw new Error('Invalid private key');
+      const ecPrivPkcs8 = u8.slice(p + 2);
+      return { kemSec, ecPrivPkcs8 };
+    }
+    function buildHeader(iv, kemCtLen, salt, epkLen){
+      const hdr = new Uint8Array(12 + 2 + 16 + 2);
+      hdr.set(iv, 0);
+      hdr[12] = (kemCtLen>>>8)&255;
+      hdr[13] = kemCtLen&255;
+      hdr.set(salt, 14);
+      const q = 30;
+      hdr[q]   = (epkLen>>>8)&255;
+      hdr[q+1] = epkLen&255;
+      return hdr;
+    }
+    function parseHeader(u8){
+      if (u8.length < 12+2+16+2) throw new Error('Ciphertext too short');
+      const iv = u8.slice(0,12);
+      const kemCtLen = (u8[12]<<8) | u8[13];
+      const salt = u8.slice(14,30);
+      const epkLen = (u8[30]<<8) | u8[31];
+      const off = 32;
+      return {iv, kemCtLen, salt, epkLen, off};
+    }
+    async function hkdfAesKey(ikmBytes, salt, infoBytes) {
+      const ikm = await crypto.subtle.importKey("raw", ikmBytes, "HKDF", false, ["deriveKey"]);
+      const key = await crypto.subtle.deriveKey(
+        { name: "HKDF", hash: "SHA-512", salt, info: infoBytes },
+        ikm,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+      return key;
+    }
+    async function generateKeys() {
+      const btn = document.getElementById('generateBtn');
+      const original = btn.innerText;
+      btn.disabled = true;
+      btn.innerText = 'Generating...';
+      let seed = null;
+      try {
+        const kem = getKem();
+        seed = crypto.getRandomValues(new Uint8Array(64));
+        const kemKeys = kem.keygen(seed);
+        const ecKeys = await crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']);
+        const ecPubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', ecKeys.publicKey));
+        const ecPrivPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', ecKeys.privateKey));
+        const pubPacked = serializeHybridPublic(new Uint8Array(kemKeys.publicKey.buffer), ecPubRaw);
+        const secPacked = serializeHybridPrivate(new Uint8Array(kemKeys.secretKey.buffer), ecPrivPkcs8);
+        document.getElementById('publicKey').value  = arrayBufferToBase64(pubPacked.buffer);
+        document.getElementById('privateKey').value = arrayBufferToBase64(secPacked.buffer);
+        btn.innerText = 'Keys Generated!';
+      } catch (err) {
+        alert('Key generation failed: ' + err.message);
+        console.error(err);
+        btn.innerText = 'Generation Failed';
+      } finally {
+        if (seed) seed.fill(0);
+        setTimeout(()=>{ btn.innerText = original; btn.disabled = false; }, 1500);
+      }
+    }
+    async function encryptText() {
+      let ecdhBits = null, kemSS = null, ikm = null;
+      try {
+        const kem = getKem();
+        const plaintext = document.getElementById('plaintext').value;
+        const publicKeyBase64 = document.getElementById('publicKey').value;
+        if (!plaintext || !publicKeyBase64) { alert('Please provide plaintext and public key.'); return; }
+        const pubPacked = new Uint8Array(base64ToArrayBuffer(publicKeyBase64));
+        const parsedPub = parseHybridPublic(pubPacked);
+        const kemPub = parsedPub.kemPub;
+        const ecPubRaw = parsedPub.ecPubRaw;
+        const recipientEcPub = await crypto.subtle.importKey('raw', ecPubRaw, {name:'ECDH', namedCurve:'P-256'}, false, []);
+        const eph = await crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']);
+        const ephPubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey));
+        ecdhBits = new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH', public: recipientEcPub}, eph.privateKey, 256));
+        const r = kem.encapsulate(kemPub);
+        kemSS = new Uint8Array(r.sharedSecret);
+        const kemCt = new Uint8Array(r.cipherText);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const header = buildHeader(iv, kemCt.length, salt, ephPubRaw.length);
+        const info = concatBytes(utf8('HYBRID-MLKEM1024+P256+AESGCM v2-HKDF-SHA512'), header, kemCt, ephPubRaw);
+        ikm = concatBytes(kemSS, ecdhBits);
+        const aesKey = await hkdfAesKey(ikm, salt, info);
+        const aad = header;
+        const encrypted = await crypto.subtle.encrypt({name: "AES-GCM", iv, additionalData: aad, tagLength: 128}, aesKey, te.encode(plaintext));
+        const out = concatBytes(header, kemCt, ephPubRaw, new Uint8Array(encrypted));
+        const base64 = arrayBufferToBase64(out.buffer);
+        document.getElementById('outputMessage').value = base64;
+        document.getElementById('outputLabel').textContent = 'Encrypted Text (Base64)';
+        document.getElementById('ciphertext').value = base64;
+      } catch (err) {
+        document.getElementById('outputMessage').value = 'Encryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
+        console.error(err);
+      } finally {
+        if (ecdhBits) ecdhBits.fill(0);
+        if (kemSS) kemSS.fill(0);
+        if (ikm) ikm.fill(0);
+      }
+    }
+    async function decryptText() {
+      let ecdhBits = null, kemSS = null, ikm = null;
+      try {
+        const kem = getKem();
+        const ciphertextBase64 = document.getElementById('ciphertext').value;
+        const privateKeyBase64 = document.getElementById('privateKey').value;
+        if (!ciphertextBase64 || !privateKeyBase64) { alert('Please provide encrypted text and private key.'); return; }
+        const blob = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
+        const h = parseHeader(blob);
+        const minLen = h.off + h.kemCtLen + h.epkLen + 16;
+        if (blob.length < minLen) throw new Error('Ciphertext truncated');
+        const kemCt = blob.slice(h.off, h.off + h.kemCtLen);
+        const epkRaw = blob.slice(h.off + h.kemCtLen, h.off + h.kemCtLen + h.epkLen);
+        const body = blob.slice(h.off + h.kemCtLen + h.epkLen);
+        const header = buildHeader(h.iv, h.kemCtLen, h.salt, h.epkLen);
+        const privPacked = new Uint8Array(base64ToArrayBuffer(privateKeyBase64));
+        const parsedPriv = parseHybridPrivate(privPacked);
+        const kemSec = parsedPriv.kemSec;
+        const ecPrivPkcs8 = parsedPriv.ecPrivPkcs8;
+        const ecPriv = await crypto.subtle.importKey('pkcs8', ecPrivPkcs8, {name:'ECDH', namedCurve:'P-256'}, false, ['deriveBits']);
+        const senderEphPub = await crypto.subtle.importKey('raw', epkRaw, {name:'ECDH', namedCurve:'P-256'}, false, []);
+        ecdhBits = new Uint8Array(await crypto.subtle.deriveBits({name:'ECDH', public: senderEphPub}, ecPriv, 256));
+        kemSS = new Uint8Array(kem.decapsulate(kemCt, kemSec));
+        const info = concatBytes(utf8('HYBRID-MLKEM1024+P256+AESGCM v2-HKDF-SHA512'), header, kemCt, epkRaw);
+        ikm = concatBytes(kemSS, ecdhBits);
+        const aesKey = await hkdfAesKey(ikm, h.salt, info);
+        const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: h.iv, additionalData: header, tagLength: 128}, aesKey, body);
+        document.getElementById('outputMessage').value = td.decode(pt);
+        document.getElementById('outputLabel').textContent = 'Decrypted Message';
+      } catch (err) {
+        document.getElementById('outputMessage').value = 'Decryption failed: ' + err.message;
+        document.getElementById('outputLabel').textContent = 'Output';
+        console.error(err);
+      } finally {
+        if (ecdhBits) ecdhBits.fill(0);
+        if (kemSS) kemSS.fill(0);
+        if (ikm) ikm.fill(0);
+      }
+    }
+    async function copyText(id) {
+      const text = document.getElementById(id).value;
+      try { await navigator.clipboard.writeText(text); alert('Copied to clipboard!'); }
+      catch (err) { console.error('Copy failed:', err); }
+    }
+    function clearField(id) { document.getElementById(id).value = ''; }
+    function clearAll() {
+      document.getElementById('publicKey').value = '';
+      document.getElementById('privateKey').value = '';
+      document.getElementById('plaintext').value = '';
+      document.getElementById('ciphertext').value = '';
+      document.getElementById('outputMessage').value = '';
+      document.getElementById('outputLabel').textContent = 'Output';
+    }
+  </script>
+</body>
+</html>
