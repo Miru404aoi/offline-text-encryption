@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>WebRTC Manual Signaling · Audio + Chat + File</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-elevated: #020617;
+    --card: #020617;
+    --border: #1e293b;
+    --accent: #38bdf8;
+    --accent-soft: rgba(56, 189, 248, 0.15);
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --danger: #f97373;
+    --success: #22c55e;
+    --radius-lg: 14px;
+    --radius-sm: 8px;
+    --shadow-soft: 0 18px 40px rgba(15, 23, 42, 0.85);
+    --shadow-subtle: 0 8px 18px rgba(15, 23, 42, 0.6);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: radial-gradient(circle at top left, #1d283a 0, #020617 40%, #000 100%);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+  }
+  main { width: 100%; max-width: 1100px; }
+  h1, h2, h3 { margin: 0; }
+  h1 { font-size: 1.6rem; letter-spacing: 0.03em; }
+  code {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background: rgba(15, 23, 42, 0.8);
+    padding: 0.12rem 0.25rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 12px; }
+  .subtitle { max-width: 600px; font-size: 0.9rem; color: var(--text-muted); }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #f97316;
+  }
+  .dot.connected { background: var(--success); }
+  .dot.failed { background: var(--danger); }
+  .top-card {
+    background: radial-gradient(circle at top left, #1d283a 0, #020617 60%);
+    border-radius: 18px;
+    padding: 18px 20px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 18px;
+  }
+  .top-steps { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+  .step-pill {
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .step-pill span {
+    color: var(--accent);
+    margin-right: 4px;
+    font-weight: 600;
+  }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: 14px 14px 16px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-subtle);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .card-header h3 { font-size: 0.95rem; letter-spacing: 0.02em; }
+  .card-header small { font-size: 0.78rem; color: var(--text-muted); }
+  small { color: var(--text-muted); font-size: 0.8rem; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .row-3 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.1fr) minmax(0, 1.1fr);
+    gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .row, .row-3 { grid-template-columns: minmax(0, 1fr); }
+    body { padding: 16px; }
+  }
+  label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  input, textarea, button {
+    font-family: inherit;
+    font-size: 0.88rem;
+  }
+  input, textarea {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.9);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    padding: 8px 9px;
+    color: var(--text);
+    outline: none;
+    transition: border 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  input::placeholder, textarea::placeholder {
+    color: #6b7280;
+    font-size: 0.8rem;
+  }
+  input:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+    background: #020617;
+  }
+  textarea {
+    min-height: 170px;
+    resize: vertical;
+    line-height: 1.4;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.78rem;
+  }
+  button {
+    border-radius: 999px;
+    border: none;
+    padding: 7px 12px;
+    background: linear-gradient(135deg, #0ea5e9, #22c55e);
+    color: #0b1120;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    box-shadow: 0 10px 20px rgba(34, 211, 238, 0.25);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, background 0.12s;
+  }
+  button:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 14px 28px rgba(56, 189, 248, 0.35);
+    filter: brightness(1.02);
+  }
+  button:active {
+    transform: translateY(0.5px) scale(0.99);
+    box-shadow: 0 7px 14px rgba(15, 23, 42, 0.9);
+  }
+  button.secondary {
+    background: rgba(15, 23, 42, 0.85);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.9);
+  }
+  button.secondary:hover { background: rgba(15, 23, 42, 1); }
+  button[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  #chatHistory {
+    height: 210px;
+    overflow-y: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    padding: 8px 9px;
+    background: rgba(15, 23, 42, 0.9);
+    font-size: 0.8rem;
+  }
+  .chat-msg {
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    max-width: 90%;
+  }
+  .chat-me { background: rgba(56, 189, 248, 0.08); align-self: flex-end; }
+  .chat-peer { background: rgba(148, 163, 184, 0.16); }
+  .chat-meta {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+  }
+  .chat-wrapper { display: flex; flex-direction: column; gap: 4px; }
+  #chatInput { margin-top: 6px; }
+  #fileProgress {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+  }
+  #remoteAudio {
+    width: 100%;
+    margin-top: 6px;
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.8);
+  }
+  .badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: var(--text-muted);
+  }
+  .badge-soft {
+    background: var(--accent-soft);
+    color: #e0f2fe;
+    border-color: rgba(56, 189, 248, 0.4);
+  }
+  .pill-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .pill-label span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hint {
+    margin-top: 4px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+  }
+</style>
+<body>
+<main>
+  <div class="top-card">
+    <div class="header">
+      <div>
+        <h1>WebRTC Manual Signaling · Audio + Chat + File</h1>
+        <p class="subtitle">
+          Both sides click <b>Start</b> → A clicks <b>Generate Offer</b>, copies left JSON to B →
+          B pastes into right box and clicks <b>Apply Remote</b> (auto-generates Answer) →
+          A pastes B's JSON and clicks <b>Apply Remote</b> again.
+        </p>
+        <div class="top-steps">
+          <div class="step-pill"><span>1</span>Both: Start Capture</div>
+          <div class="step-pill"><span>2</span>A: Generate Offer &amp; send JSON</div>
+          <div class="step-pill"><span>3</span>B: Paste → Apply Remote → send JSON back</div>
+          <div class="step-pill"><span>4</span>A: Paste → Apply Remote → Connected</div>
+        </div>
+      </div>
+      <div>
+        <div class="status-pill">
+          <div id="connDot" class="dot"></div>
+          <div>
+            <div style="font-size:0.78rem;">Connection</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);">
+              <span id="connState">new</span>
+              <span style="margin:0 4px;">·</span>
+              ICE: <span id="iceGather">new</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header">
+      <h3>Optional TURN (leave blank to disable)</h3>
+      <span class="badge">STUN + optional TURN</span>
+    </div>
+    <div class="row-3">
+      <div>
+        <label>TURN URL</label>
+        <input id="turnUrl" placeholder="turns:turn.yourdomain.com:5349">
+        <div class="hint">
+          Example: <code>turn:turn.example.com:3478</code> or <code>turns:turn.example.com:5349</code>
+        </div>
+      </div>
+      <div>
+        <label>Username (optional)</label>
+        <input id="turnUser" placeholder="username">
+      </div>
+      <div>
+        <label>Password (optional)</label>
+        <input id="turnPass" placeholder="password">
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px;">
+      In restrictive networks use <code>turns:</code> on port 443.
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Local blob (copy to peer)</h3>
+        <span class="badge-soft">SDP + ICE included</span>
+      </div>
+      <label>Local JSON</label>
+      <textarea id="local" placeholder="Generated SDP + ICE JSON will appear here"></textarea>
+      <div class="button-row">
+        <button id="copyLocal">Copy local JSON</button>
+        <button class="secondary" id="clearLocal">Clear</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Remote blob (paste from peer)</h3>
+        <span class="badge">Offer / Answer</span>
+      </div>
+      <label>Remote JSON</label>
+      <textarea id="remote" placeholder="Paste peer's JSON (contains SDP + ICE) here"></textarea>
+      <div class="button-row">
+        <button id="applyRemote">Apply Remote / Generate Answer</button>
+        <button class="secondary" id="clearRemote">Clear</button>
+      </div>
+      <div id="signalStatus" class="hint"></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Media &amp; Connection</h3>
+        <span class="badge">Microphone only</span>
+      </div>
+      <div class="button-row">
+        <button id="start">Start Capture (mic)</button>
+        <button id="makeOffer" class="secondary">Generate Offer (peer A)</button>
+      </div>
+      <div class="hint">
+        Requires microphone permission. Open via <code>https://</code> or <code>localhost</code>.
+      </div>
+      <div class="hint">
+        Only the Offerer creates DataChannels; the other side receives them automatically.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Remote Audio</h3>
+        <span class="pill-label"><span></span>Auto-play on track</span>
+      </div>
+      <audio id="remoteAudio" autoplay playsinline controls></audio>
+      <div class="hint">
+        No sound? Ensure a user gesture occurred. iOS requires <code>playsinline</code>.
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Text Chat</h3>
+        <span class="badge">DataChannel: <code>chat</code></span>
+      </div>
+      <div id="chatHistory" class="chat-wrapper"></div>
+      <input id="chatInput" placeholder="Type a message and press Enter after connection is established" autocomplete="off" autocorrect="off">
+      <div class="hint">
+        Available after connection and DataChannel are open.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>File Transfer</h3>
+        <span class="badge">DataChannel: <code>file</code></span>
+      </div>
+      <input type="file" id="fileInput">
+      <div class="button-row" style="margin-top:6px;">
+        <button id="sendFile">Send File</button>
+      </div>
+      <div id="fileProgress">Waiting for connection...</div>
+      <div class="hint">
+        Received files download automatically. Large files use chunked transfer with basic backpressure.
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+  let pc = null;
+  let stream = null;
+  let chatChannel = null;
+  let fileChannel = null;
+  let isOfferer = false;
+  const iceBuf = [];
+  const iceGatherEl = document.getElementById('iceGather');
+  const connStateEl = document.getElementById('connState');
+  const connDotEl = document.getElementById('connDot');
+  const localEl = document.getElementById('local');
+  const remoteEl = document.getElementById('remote');
+  const remoteAudioEl = document.getElementById('remoteAudio');
+  const signalStatusEl = document.getElementById('ervationsStatus');
+  const fileProgressEl = document.getElementById('fileProgress');
+  const chatHistoryEl = document.getElementById('chatHistory');
+  const chatInputEl = document.getElementById('chatInput');
+
+  const incomingFileState = {
+    name: '',
+    size: 0,
+    buffers: [],
+    received: 0
+  };
+
+  function buildIceServers() {
+    const turnUrl = document.getElementById('turnUrl').value.trim();
+    const u = document.getElementById('turnUser').value.trim();
+    const p = document.getElementById('turnPass').value.trim();
+    const servers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    if (turnUrl) {
+      const entry = { urls: turnUrl };
+      if (u) entry.username = u;
+      if (p) entry.credential = p;
+      servers.push(entry);
+    }
+    return servers;
+  }
+
+  function updateLocalBlob() {
+    if (!pc) return;
+    const blob = { sdp: pc.localDescription || null, ice: iceBuf };
+    localEl.value = JSON.stringify(blob, null, 2);
+  }
+
+  function setConnectionState(state) {
+    connStateEl.textContent = state;
+    connDotEl.classList.remove('connected', 'failed');
+    if (state === 'connected') {
+      connDotEl.classList.add('connected');
+    } else if (state === 'failed' || state === 'disconnected') {
+      connDotEl.classList.add('failed');
+    }
+  }
+
+  function appendChatMessage(msg, isRemote = false) {
+    const container = document.createElement('div');
+    container.className = 'chat-msg ' + (isRemote ? 'chat-peer' : 'chat-me');
+    const meta = document.createElement('span');
+    meta.className = 'chat-meta';
+    meta.textContent = isRemote ? 'Peer' : 'Me';
+    const text = document.createElement('div');
+    text.textContent = msg;
+    container.appendChild(meta);
+    container.appendChild(text);
+    chatHistoryEl.appendChild(container);
+    chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+  }
+
+  function attachChatChannelHandlers(channel) {
+    chatChannel = channel;
+    chatChannel.onopen = () => appendChatMessage('[chat ready]', true);
+    chatChannel.onmessage = (e) => appendChatMessage(e.data, true);
+  }
+
+  function attachFileChannelHandlers(channel) {
+    fileChannel = channel;
+    fileChannel.binaryType = 'arraybuffer';
+    fileChannel.onopen = () => { fileProgressEl.textContent = 'File channel ready'; };
+    fileChannel.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        try {
+          const meta = JSON.parse(e.data);
+          incomingFileState.name = meta.name || 'download';
+          incomingFileState.size = meta.size || 0;
+          incomingFileState.buffers = [];
+          incomingFileState.received = 0;
+          fileProgressEl.textContent = `Receiving: ${incomingFileState.name} (0 / ${incomingFileState.size})`;
+        } catch (_) {}
+      } else {
+        incomingFileState.buffers.push(e.data);
+        incomingFileState.received += e.data.byteLength;
+        const total = incomingFileState.size || '?';
+        fileProgressEl.textContent = `Receiving: ${incomingFileState.name} (${incomingFileState.received} / ${total})`;
+        if (incomingFileState.size && incomingFileState.received >= incomingFileState.size) {
+          const blob = new Blob(incomingFileState.buffers);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = incomingFileState.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          fileProgressEl.textContent = 'File received';
+        }
+      }
+    };
+  }
+
+  function handleIncomingDataChannel(e) {
+    if (e.channel.label === 'chat') attachChatChannelHandlers(e.channel);
+    if (e.channel.label === 'file') attachFileChannelHandlers(e.channel);
+  }
+
+  function createLocalDataChannels() {
+    if (chatChannel || fileChannel) return;
+    const chat = pc.createDataChannel('chat');
+    attachChatChannelHandlers(chat);
+    const file = pc.createDataChannel('file');
+    attachFileChannelHandlers(file);
+  }
+
+  async function initPeerConnection() {
+    if (pc) return;
+    pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    pc.ontrack = (e) => { remoteAudioEl.srcObject = e.streams[0]; };
+    pc.onicecandidate = (e) => { if (e.candidate) { iceBuf.push(e.candidate); updateLocalBlob(); } };
+    pc.onicegatheringstatechange = () => { iceGatherEl.textContent = pc.iceGatheringState; updateLocalBlob(); };
+    pc.onconnectionstatechange = () => setConnectionState(pc.connectionState);
+    pc.ondatachannel = handleIncomingDataChannel;
+  }
+
+  document.getElementById('start').onclick = async () => {
+    try {
+      await initPeerConnection();
+      alert('Ready: Peer A can now click "Generate Offer".');
+    } catch (err) {
+      alert('Failed to start capture: ' + (err.message || err));
+    }
+  };
+
+  document.getElementById('makeOffer').onclick = async () => {
+    if (!pc) return alert('Please click "Start Capture" first.');
+    try {
+      isOfferer = true;
+      createLocalDataChannels();
+      const offer = await pc.createOffer({ offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      updateLocalBlob();
+      signalStatusEl.textContent = 'Offer generated. Copy left JSON to peer.';
+      signalStatusEl.style.color = 'var(--text-muted)';
+    } catch (err) {
+      signalStatusEl.textContent = 'Error: ' + (err.message || err);
+      signalStatusEl.style.color = '#f97373';
+    }
+  };
+
+  document.getElementById('applyRemote').onclick = async () => {
+    if (!pc) return alert('Please click "Start Capture" first.');
+    const raw = remoteEl.value.trim();
+    if (!raw) return alert('Remote JSON is empty');
+    try {
+      const obj = JSON.parse(raw);
+      if (obj.sdp) {
+        await pc.setRemoteDescription(obj.sdp);
+        if (pc.signalingState === 'have-remote-offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+        }
+      }
+      if (Array.isArray(obj.ice)) {
+        for (const c of obj.ice) {
+          try { await pc.addIceCandidate(c); } catch (_) {}
+        }
+      }
+      updateLocalBlob();
+      signalStatusEl.textContent = 'Remote applied successfully.';
+      signalStatusEl.style.color = 'var(--text-muted)';
+    } catch (err) {
+      signalStatusEl.textContent = 'Error: ' + (err.message || err);
+      signalStatusEl.style.color = '#f97373';
+    }
+  };
+
+  document.getElementById('copyLocal').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(localEl.value);
+      alert('Local JSON copied. Send it to your peer.');
+    } catch (_) {
+      alert('Copy failed. Select and copy manually.');
+    }
+  };
+
+  document.getElementById('clearLocal').onclick = () => { localEl.value = ''; };
+  document.getElementById('clearRemote').onclick = () => { remoteEl.value = ''; signalStatusEl.textContent = ''; };
+
+  chatInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const msg = chatInputEl.value.trim();
+      if (!msg) return;
+      if (!chatChannel || chatChannel.readyState !== 'open') return alert('Chat channel not ready.');
+      chatChannel.send(msg);
+      appendChatMessage(msg, false);
+      chatInputEl.value = '';
+    }
+  });
+
+  document.getElementById('sendFile').onclick = () => {
+    const input = document.getElementById('fileInput');
+    const file = input.files[0];
+    if (!file) return alert('Select a file first.');
+    if (!fileChannel || fileChannel.readyState !== 'open') return alert('File channel not ready.');
+
+    fileChannel.send(JSON.stringify({ name: file.name, size: file.size }));
+    const chunkSize = 16 * 1024;
+    const maxBuffered = 4 * 1024 * 1024;
+    let offset = 0;
+    const reader = new FileReader();
+    fileProgressEl.textContent = `Sending: ${file.name} (0 / ${file.size})`;
+    reader.onload = (e) => {
+      const buffer = e.target.result;
+      const sendChunk = () => {
+        if (fileChannel.bufferedAmount > maxBuffered) {
+          setTimeout(sendChunk, 30);
+          return;
+        }
+        fileChannel.send(buffer);
+        offset += buffer.byteLength;
+        fileProgressEl.textContent = `Sending: ${file.name} (${offset} / ${file.size})`;
+        if (offset < file.size) readSlice(offset);
+        else fileProgressEl.textContent = 'File sent';
+      };
+      sendChunk();
+    };
+    const readSlice = (o) => reader.readAsArrayBuffer(file.slice(o, o + chunkSize));
+    readSlice(0);
+  };
+</script>
+</body>
+</html>
