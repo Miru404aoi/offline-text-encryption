@@ -267,23 +267,35 @@
     </div>
   </div>
 
-  <!-- Encrypt -->
-  <div class="card">
-    <label for="plaintext">Message to Encrypt</label>
-    <textarea id="plaintext" rows="5" placeholder="Type or paste your secret message here..."></textarea>
-    <button class="btn btn-success" onclick="encryptText()" style="width:100%; margin-top:12px">
+<!-- Encrypt -->
+<div class="card">
+  <label for="plaintext">Message to Encrypt</label>
+  <textarea id="plaintext" rows="5" placeholder="Type or paste your secret message here..."></textarea>
+  
+  <div style="margin-top: 12px; display: flex; gap: 8px;">
+    <button class="btn btn-success" onclick="encryptText()" style="flex: 1;">
       Encrypt Message (Quantum-Resistant)
     </button>
-  </div>
-
-  <!-- Decrypt -->
-  <div class="card">
-    <label for="ciphertext">Received Ciphertext</label>
-    <textarea id="ciphertext" rows="5" placeholder="Paste the encrypted Base64 message here..."></textarea>
-    <button class="btn btn-primary" onclick="decryptText()" style="width:100%; margin-top:12px">
-      Decrypt Message
+    <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('plaintext').value='';">
+      clear
     </button>
   </div>
+</div>
+
+<!-- Decrypt -->
+<div class="card" style="margin-top: 20px;">
+  <label for="ciphertext">Received Ciphertext</label>
+  <textarea id="ciphertext" rows="5" placeholder="Paste the encrypted Base64 message here..."></textarea>
+  
+  <div style="margin-top: 12px; display: flex; gap: 8px;">
+    <button class="btn btn-primary" onclick="decryptText()" style="flex: 1;">
+      Decrypt Message
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('ciphertext').value='';">
+      clear
+    </button>
+  </div>
+</div>
 
   <!-- Output -->
   <div class="card">
