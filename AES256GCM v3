@@ -190,9 +190,11 @@
       aadBytes = aadStr ? enc.encode(aadStr) : null;
 
       const key = await deriveKey(pwdBytes, salt, iters);
+      const header = buildHeader(iters, salt, iv);
 
       const alg = { name: 'AES-GCM', iv, tagLength: 128 };
-      if (aadBytes) alg.additionalData = aadBytes;
+      alg.additionalData = aadBytes ? concat(header, aadBytes) : header;
+
 
       const encrypted = await crypto.subtle.encrypt(
         alg,
@@ -200,7 +202,7 @@
         enc.encode(plain)
       );
 
-      const payload = concat(buildHeader(iters, salt, iv), new Uint8Array(encrypted));
+      const payload = concat(header, new Uint8Array(encrypted));
       $io.value = b64uEncode(payload);
       setStatus('Encryption successful', true);
     } catch (e) {
@@ -225,6 +227,7 @@
 
       const data = b64uDecode(input);
       const parsed = parseHeader(data);
+      const headerBytes = data.slice(0, 34);
       const iter = parsed.iter;
       salt = parsed.salt;
       iv = parsed.iv;
@@ -236,7 +239,7 @@
       const key = await deriveKey(pwdBytes, salt, iter);
 
       const alg = { name: 'AES-GCM', iv, tagLength: 128 };
-      if (aadBytes) alg.additionalData = aadBytes;
+      alg.additionalData = aadBytes ? concat(headerBytes, aadBytes) : headerBytes;
 
       const decrypted = await crypto.subtle.decrypt(
         alg,
