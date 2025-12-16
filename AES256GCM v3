@@ -65,6 +65,9 @@
     <button id="copyBtn" class="secondary">Copy Output</button>
     <button id="clearBtn" class="secondary">Clear All</button>
   </div>
+  <div class="row" style="margin-top:8px">
+  <button class="secondary" onclick="$io.value=''; setStatus('');">Clear Input Only</button>
+</div>
 
   <div id="status" class="hint"></div>
 
