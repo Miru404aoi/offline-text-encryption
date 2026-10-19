@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<!--
+  AES-256-GCM Encryptor — headerless format for short-lived messages
+
+  The output has no magic bytes, version, KDF id or stored parameters.
+  Every byte is either random (salt, IV) or AES-GCM output, so a message
+  looks like uniformly random data encoded as Base64URL (no "=" padding).
+
+    offset  len  field
+    0       16   salt (random)
+    16      12   AES-GCM IV (random)
+    28      n    AES-GCM ciphertext of the inner message
+    28+n    16   AES-GCM authentication tag
+
+  key   = PBKDF2-HMAC-SHA512(UTF-8(NFC(password)), salt, iterations, 32 bytes)
+          iterations is NOT stored: sender and receiver must use the same value
+          (default 600,000)
+  AAD   = UTF-8(NFC(user AAD))   (empty if unused; also not stored)
+  inner = uint32-LE byte length || UTF-8(text) || zero bytes
+          With "Hide message length" on, the inner length is rounded up to a
+          multiple of 256 and then a random 0-255 extra bytes are added, so the
+          output length has no fixed pattern. With it off there is no padding.
+
+  Independent decryption in Python (pip install cryptography):
+
+    import base64, hashlib, struct, unicodedata
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    def decrypt(ct, password, aad="", iterations=600000):
+        d = base64.urlsafe_b64decode(ct + "=" * (-len(ct) % 4))
+        nfc = lambda s: unicodedata.normalize("NFC", s).encode()
+        key = hashlib.pbkdf2_hmac("sha512", nfc(password), d[:16], iterations, 32)
+        inner = AESGCM(key).decrypt(d[16:28], d[28:], nfc(aad))
+        n = struct.unpack("<I", inner[:4])[0]
+        return inner[4:4 + n].decode("utf-8")
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AES-256-GCM Encryptor</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root{--fg:#1d1d1f;--muted:#666;--line:#ccc;--bg:#fafafa;--accent:#0060df;--accent-h:#0050c0;--sec:#666;--sec-h:#555;--ok:#0a7d00;--err:#b00020}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:20px;line-height:1.45;background:var(--bg);color:var(--fg)}
+    main{max-width:900px;margin:0 auto}
+    h1{font-size:20px;margin:0 0 4px}
+    .sub{color:#444;font-size:14px;margin:0 0 16px}
+    .row{margin:12px 0}
+    .label{font-weight:600;margin:6px 0 4px;display:block}
+    textarea,input:not([type=checkbox]),button{width:100%;font-size:15px;padding:10px;box-sizing:border-box;border-radius:6px;border:1px solid var(--line);font-family:inherit}
+    textarea{height:160px;resize:vertical}
+    .mono,textarea.mono,input.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .hint{color:var(--muted);font-size:12.5px;margin-top:4px}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px}
+    @media (max-width:600px){.cols,.cols3{grid-template-columns:1fr;gap:8px}}
+    .check label{display:flex;gap:8px;align-items:flex-start;font-weight:600;cursor:pointer}
+    .check input{width:16px;height:16px;margin:3px 0 0;flex:none}
+    button{background:var(--accent);color:#fff;border:none;cursor:pointer;font-weight:600}
+    button:hover:not(:disabled){background:var(--accent-h)}
+    button.secondary{background:var(--sec)}
+    button.secondary:hover:not(:disabled){background:var(--sec-h)}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+    textarea[readonly]{background:#f0f0f0}
+    .pwd-wrapper{position:relative}
+    .pwd-wrapper input{padding-right:48px}
+    .pwd-wrapper button.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:34px;padding:0;background:transparent;color:inherit;border:none;font-size:18px;line-height:1;border-radius:4px}
+    .pwd-wrapper button.eye:hover:not(:disabled){background:rgba(0,0,0,.06)}
+    #status{margin-top:12px;font-weight:500;min-height:1.45em}
+    #status.ok{color:var(--ok);font-weight:600}
+    #status.err{color:var(--err);font-weight:600}
+    #status.busy{color:var(--accent);font-weight:600}
+  </style>
+</head>
+<body>
+<main>
+  <h1>AES-256-GCM Encryptor</h1>
+  <p class="sub">Offline-only • No network access • No header or fixed format — output looks like random data</p>
+
+  <div class="row">
+    <label class="label" for="io">Input (plaintext or ciphertext)</label>
+    <textarea id="io" class="mono" placeholder="Plaintext → Encrypt    Ciphertext (Base64URL) → Decrypt" spellcheck="false" autocomplete="off" autocapitalize="off" autofocus></textarea>
+    <div id="detect" class="hint"></div>
+  </div>
+
+  <div class="cols">
+    <div class="row">
+      <label class="label" for="pwd">Password (high entropy, ≥ 32 chars)</label>
+      <div class="pwd-wrapper">
+        <input id="pwd" type="password" class="mono" placeholder="Use only in a clean offline environment" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other">
+        <button type="button" class="eye" id="eye" aria-label="Show password" aria-pressed="false" title="Show password">👁</button>
+      </div>
+      <div class="hint">Unicode is normalized (NFC), so the same password typed on any OS or IME gives the same key.</div>
+    </div>
+    <div class="row">
+      <label class="label" for="iters">PBKDF2-SHA512 iterations (default 600,000)</label>
+      <input id="iters" type="number" class="mono" min="100000" max="5000000" step="1000" value="600000" inputmode="numeric">
+      <div class="hint">100,000 – 5,000,000. Not stored in the ciphertext — the receiver must use the same value.</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <label class="label" for="aad">AAD (optional, must match exactly on both sides)</label>
+    <input id="aad" type="text" class="mono" placeholder="Leave empty if not needed" autocomplete="off" spellcheck="false">
+    <div class="hint">Additional authenticated data binds context (e.g. a conversation label). Not encrypted and not stored — the receiver must enter it too.</div>
+  </div>
+
+  <div class="row check">
+    <label for="pad"><input type="checkbox" id="pad" checked> Hide message length (random padding)</label>
+    <div class="hint">Rounds up to 256 bytes plus a random 0–255 bytes. Turn off for shorter output; the ciphertext length will then reveal the exact message length.</div>
+  </div>
+
+  <div class="cols">
+    <button type="button" id="encBtn">Encrypt (AES-256-GCM)</button>
+    <button type="button" id="decBtn">Decrypt (AES-256-GCM)</button>
+  </div>
+  <div class="cols3">
+    <button type="button" id="copyBtn" class="secondary">Copy Output</button>
+    <button type="button" id="clearInputBtn" class="secondary">Clear Input Only</button>
+    <button type="button" id="clearBtn" class="secondary">Clear All</button>
+  </div>
+
+  <div id="status" class="hint" role="status" aria-live="polite"></div>
+</main>
+
+<script>
+'use strict';
+(() => {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder('utf-8', { fatal: true });
+  const fmt = (n) => n.toLocaleString('en-US');
+  const randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+  /** Errors whose message is safe and meaningful to show as-is. */
+  class UserError extends Error {}
+
+  // ---------------- parameters (nothing below is written into the output) ----------------
+  const SALT_LEN = 16, IV_LEN = 12, TAG_LEN = 16, LEN_PREFIX = 4;
+  const MIN_CT_LEN = SALT_LEN + IV_LEN + LEN_PREFIX + TAG_LEN;   // 48 bytes
+  const MIN_ITERS = 100000, MAX_ITERS = 5000000, DEFAULT_ITERS = 600000;
+  const PAD_BLOCK = 256;                                          // random extra is 0..PAD_BLOCK-1
+
+  // ---------------- encoding helpers ----------------
+  function b64uEncode(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) {
+      s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    }
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const B64_RE = /^[A-Za-z0-9\-_+/]*={0,2}$/;
+  function b64uDecode(str) {
+    str = (str || '').replace(/\s+/g, '');      // tolerate line wrapping added by chat apps
+    if (!str || !B64_RE.test(str)) throw new UserError('input is not valid Base64URL');
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    let bin;
+    try { bin = atob(str); } catch { throw new UserError('input is not valid Base64URL'); }
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  function concat(...arrays) {
+    let total = 0;
+    for (const a of arrays) total += a.length;
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const a of arrays) { out.set(a, off); off += a.length; }
+    return out;
+  }
+
+  /** Heuristic only — the format has no marker. A single Base64URL token of ciphertext size. */
+  function looksLikeCiphertext(text) {
+    const t = text.replace(/[\r\n]+/g, '').trim();
+    return t.length >= Math.ceil(MIN_CT_LEN * 4 / 3) && /^[A-Za-z0-9\-_]+$/.test(t);
+  }
+
+  // ---------------- crypto ----------------
+  async function deriveKey(pwdBytes, salt, iterations) {
+    const base = await crypto.subtle.importKey('raw', pwdBytes, 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations, hash: 'SHA-512' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+
+  function packPlaintext(text, pad) {
+    const data = enc.encode(text);
+    let len = LEN_PREFIX + data.length;
+    if (pad) len = Math.ceil(len / PAD_BLOCK) * PAD_BLOCK + randomBytes(1)[0];   // 0..255, uniform
+    const out = new Uint8Array(len);                 // zero-filled → zero padding
+    new DataView(out.buffer).setUint32(0, data.length, true);
+    out.set(data, LEN_PREFIX);
+    data.fill(0);
+    return out;
+  }
+
+  function unpackPlaintext(inner) {
+    if (inner.length < LEN_PREFIX) throw new UserError('decrypted data is malformed');
+    const n = new DataView(inner.buffer, inner.byteOffset, inner.length).getUint32(0, true);
+    if (n > inner.length - LEN_PREFIX) throw new UserError('decrypted data is malformed');
+    try { return dec.decode(inner.subarray(LEN_PREFIX, LEN_PREFIX + n)); }
+    catch { throw new UserError('decrypted data is not valid UTF-8 text'); }
+  }
+
+  // Note: JavaScript cannot reliably wipe secrets (strings are immutable and the
+  // browser keeps internal copies). Zeroing the byte buffers below is best-effort
+  // only; close the tab when you are done.
+  async function encryptMessage(plain, pwd, aad, iters, pad) {
+    const salt = randomBytes(SALT_LEN);
+    const iv = randomBytes(IV_LEN);
+    const pwdBytes = enc.encode(pwd.normalize('NFC'));
+    let inner;
+    try {
+      const key = await deriveKey(pwdBytes, salt, iters);
+      inner = packPlaintext(plain, pad);
+      const ct = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, tagLength: 128, additionalData: enc.encode(aad.normalize('NFC')) },
+        key, inner);
+      return b64uEncode(concat(salt, iv, new Uint8Array(ct)));
+    } finally {
+      pwdBytes.fill(0);
+      if (inner) inner.fill(0);
+    }
+  }
+
+  async function decryptMessage(input, pwd, aad, iters) {
+    const d = b64uDecode(input);
+    if (d.length < MIN_CT_LEN) throw new UserError('input is too short to be a ciphertext');
+    const salt = d.subarray(0, SALT_LEN);
+    const iv = d.subarray(SALT_LEN, SALT_LEN + IV_LEN);
+    const body = d.subarray(SALT_LEN + IV_LEN);
+    const pwdBytes = enc.encode(pwd.normalize('NFC'));
+    try {
+      const key = await deriveKey(pwdBytes, salt, iters);
+      const pt = new Uint8Array(await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv, tagLength: 128, additionalData: enc.encode(aad.normalize('NFC')) },
+        key, body));
+      try { return unpackPlaintext(pt); } finally { pt.fill(0); }
+    } finally {
+      pwdBytes.fill(0);
+    }
+  }
+
+  // ---------------- UI ----------------
+  const $ = (id) => document.getElementById(id);
+  const $io = $('io'), $detect = $('detect'), $pwd = $('pwd'), $eye = $('eye');
+  const $iters = $('iters'), $aad = $('aad'), $pad = $('pad'), $status = $('status');
+  const $encBtn = $('encBtn'), $decBtn = $('decBtn'), $copyBtn = $('copyBtn');
+  const $clearInputBtn = $('clearInputBtn'), $clearBtn = $('clearBtn');
+  const actionButtons = [$encBtn, $decBtn, $copyBtn, $clearInputBtn, $clearBtn];
+
+  let busy = false;
+  let outputKind = null;          // 'ciphertext' | 'plaintext' | null (user-typed)
+  let wroteClipboard = false;
+
+  function setStatus(msg, state = '') {
+    $status.textContent = msg;
+    $status.className = msg ? state : 'hint';
+  }
+
+  function updateDetect() {
+    const v = $io.value;
+    if (!v) { $detect.textContent = ''; return; }
+    $detect.textContent = looksLikeCiphertext(v)
+      ? 'Looks like Base64URL data, probably a ciphertext → Decrypt'
+      : `Looks like plaintext · ${fmt(enc.encode(v).length)} bytes UTF-8 → Encrypt`;
+  }
+
+  function readIterations() {
+    const raw = $iters.value.trim();
+    const n = Number(raw);
+    if (!raw || !Number.isInteger(n)) throw new UserError('iterations must be a whole number');
+    if (n < MIN_ITERS || n > MAX_ITERS) {
+      throw new UserError(`iterations must be between ${fmt(MIN_ITERS)} and ${fmt(MAX_ITERS)}`);
+    }
+    return n;
+  }
+
+  /** Runs one crypto operation at a time with a visible busy state. */
+  async function runExclusive(label, fn, onError) {
+    if (busy) return;
+    busy = true;
+    actionButtons.forEach((b) => { b.disabled = true; });
+    $io.readOnly = true;
+    $io.setAttribute('aria-busy', 'true');
+    setStatus(label, 'busy');
+    const t0 = performance.now();
+    try {
+      await fn(() => ((performance.now() - t0) / 1000).toFixed(2) + ' s');
+    } catch (e) {
+      onError(e);
+    } finally {
+      busy = false;
+      actionButtons.forEach((b) => { b.disabled = false; });
+      $io.readOnly = false;
+      $io.removeAttribute('aria-busy');
+    }
+  }
+
+  const errText = (e) => (e instanceof UserError ? e.message : (e && e.message) || String(e));
+
+  /** Common checks for both buttons; returns null after showing an error. */
+  function readInputs(prefix) {
+    const text = $io.value, pwd = $pwd.value;
+    if (!text.trim()) { setStatus(prefix + 'input is empty', 'err'); return null; }
+    if (!pwd) { setStatus(prefix + 'password is required', 'err'); $pwd.focus(); return null; }
+    let iters;
+    try { iters = readIterations(); } catch (e) { setStatus(prefix + errText(e), 'err'); $iters.focus(); return null; }
+    return { text, pwd, iters, aad: $aad.value };
+  }
+
+  $encBtn.addEventListener('click', async () => {
+    if (busy) return;
+    const p = readInputs('Encryption failed: ');
+    if (!p) return;
+    const pad = $pad.checked;
+    if (looksLikeCiphertext(p.text) &&
+        !confirm('The input looks like it may already be a ciphertext.\n' +
+                 'Encrypting it again produces a double-encrypted result.\n\nEncrypt anyway?')) {
+      return setStatus('Encryption cancelled');
+    }
+    await runExclusive('Deriving key and encrypting…', async (elapsed) => {
+      $io.value = await encryptMessage(p.text, p.pwd, p.aad, p.iters, pad);
+      outputKind = 'ciphertext';
+      updateDetect();
+      setStatus(`Encrypted (${fmt(p.iters)} iterations · ${pad ? 'length hidden' : 'not padded'} · ${elapsed()})`, 'ok');
+    }, (e) => setStatus('Encryption failed: ' + errText(e), 'err'));
+  });
+
+  $decBtn.addEventListener('click', async () => {
+    if (busy) return;
+    const p = readInputs('Decryption failed: ');
+    if (!p) return;
+    await runExclusive('Deriving key and decrypting…', async (elapsed) => {
+      $io.value = await decryptMessage(p.text, p.pwd, p.aad, p.iters);
+      outputKind = 'plaintext';
+      updateDetect();
+      setStatus(`Decrypted (${elapsed()})`, 'ok');
+    }, (e) => {
+      if (e && e.name === 'OperationError') {
+        setStatus('Decryption failed: wrong password, AAD or iterations — or the message was modified/corrupted', 'err');
+      } else {
+        setStatus('Decryption failed: ' + errText(e), 'err');
+      }
+    });
+  });
+
+  async function writeClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back below */ }
+    }
+    if (!text) return false;
+    $io.focus();
+    $io.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    $io.setSelectionRange(0, 0);
+    return ok;
+  }
+
+  $copyBtn.addEventListener('click', async () => {
+    if (busy) return;
+    const text = $io.value;
+    if (!text) return setStatus('Nothing to copy', 'err');
+    if (await writeClipboard(text)) {
+      wroteClipboard = true;
+      setStatus(outputKind === 'plaintext'
+        ? 'Copied decrypted plaintext. Clipboard history may keep it — "Clear All" also clears the clipboard.'
+        : 'Copied to clipboard', 'ok');
+    } else {
+      setStatus('Copy failed: clipboard unavailable — select the text and copy manually', 'err');
+    }
+  });
+
+  $clearInputBtn.addEventListener('click', () => {
+    if (busy) return;
+    $io.value = '';
+    outputKind = null;
+    updateDetect();
+    setStatus('');
+    $io.focus();
+  });
+
+  $clearBtn.addEventListener('click', async () => {
+    if (busy) return;
+    $io.value = '';
+    $pwd.value = '';
+    $aad.value = '';
+    $iters.value = String(DEFAULT_ITERS);
+    $pad.checked = true;
+    setPasswordVisible(false);
+    outputKind = null;
+    updateDetect();
+    if (!wroteClipboard) return setStatus('');
+    let cleared = false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(''); cleared = true; } catch { cleared = false; }
+    }
+    if (cleared) {
+      wroteClipboard = false;
+      setStatus('Cleared (clipboard cleared too)', 'ok');
+    } else {
+      setStatus('Cleared, but the clipboard could not be cleared — clear it manually', 'err');
+    }
+  });
+
+  function setPasswordVisible(show) {
+    $pwd.type = show ? 'text' : 'password';
+    $eye.textContent = show ? '🙈' : '👁';
+    $eye.setAttribute('aria-pressed', String(show));
+    const label = show ? 'Hide password' : 'Show password';
+    $eye.setAttribute('aria-label', label);
+    $eye.title = label;
+  }
+  $eye.addEventListener('click', () => {
+    setPasswordVisible($pwd.type === 'password');
+    $pwd.focus();
+  });
+
+  $io.addEventListener('input', () => { outputKind = null; updateDetect(); });
+
+  if (!window.crypto || !window.crypto.subtle) {
+    setStatus('WebCrypto is unavailable. It needs a secure context: open this file directly from disk (file://) or over https/localhost.', 'err');
+    $encBtn.disabled = true;
+    $decBtn.disabled = true;
+  }
+  updateDetect();
+})();
+</script>
+</body>
+</html>
