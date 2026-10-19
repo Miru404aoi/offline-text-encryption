@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WebRTC Manual Signaling · Audio + Chat + File</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-elevated: #020617;
+    --card: #020617;
+    --border: #1e293b;
+    --accent: #38bdf8;
+    --accent-soft: rgba(56, 189, 248, 0.15);
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --danger: #f97373;
+    --warn: #f59e0b;
+    --success: #22c55e;
+    --radius-lg: 14px;
+    --radius-sm: 8px;
+    --shadow-soft: 0 18px 40px rgba(15, 23, 42, 0.85);
+    --shadow-subtle: 0 8px 18px rgba(15, 23, 42, 0.6);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: radial-gradient(circle at top left, #1d283a 0, #020617 40%, #000 100%);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  main { width: 100%; max-width: 1100px; }
+  h1, h2, h3 { margin: 0; }
+  h1 { font-size: 1.6rem; letter-spacing: 0.03em; }
+  code {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background: rgba(15, 23, 42, 0.8);
+    padding: 0.12rem 0.25rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 12px; }
+  .subtitle { max-width: 600px; font-size: 0.9rem; color: var(--text-muted); }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #64748b;
+    flex: none;
+  }
+  .dot.connecting { background: var(--accent); }
+  .dot.connected { background: var(--success); }
+  .dot.warn { background: var(--warn); }
+  .dot.failed { background: var(--danger); }
+  .top-card {
+    background: radial-gradient(circle at top left, #1d283a 0, #020617 60%);
+    border-radius: 18px;
+    padding: 18px 20px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 18px;
+  }
+  .top-steps { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+  .step-pill {
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .step-pill span {
+    color: var(--accent);
+    margin-right: 4px;
+    font-weight: 600;
+  }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: 14px 14px 16px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-subtle);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+  .card-header h3 { font-size: 0.95rem; letter-spacing: 0.02em; }
+  .card-header small { font-size: 0.78rem; color: var(--text-muted); }
+  small { color: var(--text-muted); font-size: 0.8rem; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .row-3 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.1fr) minmax(0, 1.1fr);
+    gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .row, .row-3 { grid-template-columns: minmax(0, 1fr); }
+    body { padding: 16px; }
+    .header { flex-direction: column; }
+  }
+  label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  input, textarea, button {
+    font-family: inherit;
+    font-size: 0.88rem;
+  }
+  input, textarea {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.9);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    padding: 8px 9px;
+    color: var(--text);
+    outline: none;
+    transition: border 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  input[type="checkbox"] { width: auto; padding: 0; margin: 0; accent-color: var(--accent); }
+  input:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+  input::placeholder, textarea::placeholder {
+    color: #6b7280;
+    font-size: 0.8rem;
+  }
+  input:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+    background: #020617;
+  }
+  textarea {
+    min-height: 170px;
+    resize: vertical;
+    line-height: 1.4;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.78rem;
+  }
+  button {
+    border-radius: 999px;
+    border: none;
+    padding: 7px 12px;
+    background: linear-gradient(135deg, #0ea5e9, #22c55e);
+    color: #0b1120;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    box-shadow: 0 10px 20px rgba(34, 211, 238, 0.25);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, background 0.12s;
+  }
+  button:hover {
+    transform: translateY(-0.5px);
+    box-shadow: 0 14px 28px rgba(56, 189, 248, 0.35);
+    filter: brightness(1.02);
+  }
+  button:active {
+    transform: translateY(0.5px) scale(0.99);
+    box-shadow: 0 7px 14px rgba(15, 23, 42, 0.9);
+  }
+  button.secondary {
+    background: rgba(15, 23, 42, 0.85);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.9);
+  }
+  button.secondary:hover { background: rgba(15, 23, 42, 1); }
+  button.danger {
+    background: rgba(249, 115, 115, 0.12);
+    color: #fecaca;
+    border: 1px solid rgba(249, 115, 115, 0.45);
+    box-shadow: none;
+  }
+  button[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  button[hidden] { display: none; }
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  #chatHistory {
+    height: 210px;
+    overflow-y: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    padding: 8px 9px;
+    background: rgba(15, 23, 42, 0.9);
+    font-size: 0.8rem;
+  }
+  .chat-msg {
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    max-width: 90%;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .chat-me { background: rgba(56, 189, 248, 0.08); align-self: flex-end; }
+  .chat-peer { background: rgba(148, 163, 184, 0.16); align-self: flex-start; }
+  .chat-sys {
+    align-self: center;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    padding: 0 6px;
+  }
+  .chat-meta {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+  }
+  .chat-wrapper { display: flex; flex-direction: column; gap: 4px; }
+  #chatInput { margin-top: 6px; }
+  .status-line {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+    overflow-wrap: anywhere;
+  }
+  .status-line.error, #signalStatus.error { color: var(--danger); }
+  #remoteAudio {
+    width: 100%;
+    margin-top: 6px;
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.8);
+  }
+  .badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .badge-soft {
+    background: var(--accent-soft);
+    color: #e0f2fe;
+    border-color: rgba(56, 189, 248, 0.4);
+  }
+  .pill-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .pill-label span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hint {
+    margin-top: 4px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+  }
+  #signalStatus { margin-top: 8px; font-size: 0.78rem; min-height: 1.2em; }
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .check-row label { display: inline; margin: 0; }
+  #receivedFiles {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.9);
+  }
+  .file-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .size { color: var(--text-muted); white-space: nowrap; }
+  .file-item a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .file-item a:hover { text-decoration: underline; }
+  .file-item button { padding: 2px 8px; font-size: 0.72rem; }
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translate(-50%, 16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    background: #0b1220;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    box-shadow: var(--shadow-subtle);
+    max-width: calc(100% - 32px);
+    text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.warn { border-color: rgba(245, 158, 11, 0.6); }
+  #toast.error { border-color: rgba(249, 115, 115, 0.6); }
+</style>
+</head>
+<body>
+<main>
+  <div class="top-card">
+    <div class="header">
+      <div>
+        <h1>WebRTC Manual Signaling · Audio + Chat + File</h1>
+        <p class="subtitle">
+          Both sides click <b>Start</b> → A clicks <b>Generate Offer</b>, waits for the JSON, copies it to B →
+          B pastes into the right box and clicks <b>Apply Remote</b> (auto-generates Answer) →
+          A pastes B's JSON and clicks <b>Apply Remote</b>. <b>Hang up</b> resets everything.
+        </p>
+        <div class="top-steps">
+          <div class="step-pill"><span>1</span>Both: Start Capture</div>
+          <div class="step-pill"><span>2</span>A: Generate Offer &amp; send JSON</div>
+          <div class="step-pill"><span>3</span>B: Paste → Apply Remote → send JSON back</div>
+          <div class="step-pill"><span>4</span>A: Paste → Apply Remote → Connected</div>
+        </div>
+      </div>
+      <div>
+        <div class="status-pill">
+          <div id="connDot" class="dot"></div>
+          <div>
+            <div style="font-size:0.78rem;">Connection</div>
+            <div style="font-size:0.72rem;color:var(--text-muted);">
+              <span id="connState">new</span>
+              <span style="margin:0 4px;">·</span>
+              ICE: <span id="iceGather">new</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header">
+      <h3>Optional TURN (leave blank to disable)</h3>
+      <span class="badge">STUN + optional TURN</span>
+    </div>
+    <div class="row-3">
+      <div>
+        <label for="turnUrl">TURN URL</label>
+        <input id="turnUrl" placeholder="turns:turn.yourdomain.com:5349" autocomplete="off" spellcheck="false">
+        <div class="hint">
+          Example: <code>turn:turn.example.com:3478</code> or <code>turns:turn.example.com:5349</code>.
+          Several URLs can be separated by commas.
+        </div>
+      </div>
+      <div>
+        <label for="turnUser">Username (optional)</label>
+        <input id="turnUser" placeholder="username" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="turnPass">Password (optional)</label>
+        <input id="turnPass" type="password" placeholder="password" autocomplete="off">
+      </div>
+    </div>
+    <div class="check-row">
+      <input type="checkbox" id="relayOnly">
+      <label for="relayOnly">Relay only — force traffic through TURN (useful to test the TURN server)</label>
+    </div>
+    <div class="hint" style="margin-top:6px;">
+      In restrictive networks use <code>turns:</code> on port 443. These settings are read when you click Start
+      and are locked until you Hang up.
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Local blob (copy to peer)</h3>
+        <span class="badge badge-soft">SDP with all ICE candidates</span>
+      </div>
+      <label for="local">Local JSON</label>
+      <textarea id="local" readonly placeholder="Your offer / answer appears here once ICE gathering has finished"></textarea>
+      <div class="button-row">
+        <button id="copyLocal">Copy local JSON</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Remote blob (paste from peer)</h3>
+        <span class="badge">Offer / Answer</span>
+      </div>
+      <label for="remote">Remote JSON</label>
+      <textarea id="remote" placeholder="Paste the peer's JSON here" spellcheck="false"></textarea>
+      <div class="button-row">
+        <button id="applyRemote">Apply Remote / Generate Answer</button>
+        <button class="secondary" id="clearRemote">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Media &amp; Connection</h3>
+        <span class="badge">Microphone only</span>
+      </div>
+      <div class="button-row">
+        <button id="start">Start Capture (mic)</button>
+        <button id="makeOffer" class="secondary">Generate Offer (peer A)</button>
+        <button id="hangUp" class="danger">Hang up</button>
+      </div>
+      <div id="signalStatus" role="status" aria-live="polite">Click Start to begin.</div>
+      <div class="hint">
+        Requires microphone permission. Open via <code>https://</code> or <code>localhost</code>.
+      </div>
+      <div class="hint">
+        Only the Offerer creates DataChannels; the other side receives them automatically.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>Remote Audio</h3>
+        <span class="pill-label"><span></span>Auto-play on track</span>
+      </div>
+      <audio id="remoteAudio" autoplay playsinline controls></audio>
+      <div class="button-row">
+        <button id="playAudio" class="secondary" hidden>Play remote audio</button>
+      </div>
+      <div class="hint">
+        If the browser blocks autoplay, a "Play remote audio" button appears.
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-header">
+        <h3>Text Chat</h3>
+        <span class="badge">DataChannel: <code>chat</code></span>
+      </div>
+      <div id="chatHistory" class="chat-wrapper" aria-live="polite"></div>
+      <input id="chatInput" placeholder="Type a message and press Enter" autocomplete="off" autocorrect="off">
+      <div class="hint">
+        Available once the connection and DataChannel are open.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>File Transfer</h3>
+        <span class="badge">DataChannel: <code>file</code></span>
+      </div>
+      <input type="file" id="fileInput">
+      <div class="button-row" style="margin-top:6px;">
+        <button id="sendFile">Send File</button>
+        <button id="cancelSend" class="secondary">Cancel</button>
+      </div>
+      <div id="sendProgress" class="status-line">Waiting for connection...</div>
+      <div id="recvProgress" class="status-line"></div>
+      <ul id="receivedFiles"></ul>
+      <div class="hint">
+        Received files are listed above and saved only when you click <b>Save</b>.
+        Max 1 GB per file (received data is held in memory).
+      </div>
+    </div>
+  </div>
+</main>
+<div id="toast" role="alert"></div>
+<script>
+'use strict';
+
+/* ---------- 常量 ---------- */
+const STUN_URL = 'stun:stun.l.google.com:19302';
+const ICE_GATHER_TIMEOUT = 5000;            // 手动信令无法 trickle：等收集完成，但 TURN 不可达时别无限等
+const CHUNK_SIZE = 16 * 1024;               // 跨浏览器最安全的 DataChannel 消息大小
+const READ_BLOCK = 1024 * 1024;             // 每次从磁盘读 1 MiB，再切成 16 KiB 发送
+const BUFFER_HIGH = 4 * 1024 * 1024;        // 发送缓冲超过它就暂停
+const BUFFER_LOW = 1024 * 1024;             // 降到它以下（bufferedamountlow）再继续
+const MAX_FILE_SIZE = 1024 * 1024 * 1024;   // 接收端把数据放在内存里，限制 1 GiB
+
+/* ---------- DOM ---------- */
+const $ = (id) => document.getElementById(id);
+const els = {
+  connDot: $('connDot'), connState: $('connState'), iceGather: $('iceGather'),
+  turnUrl: $('turnUrl'), turnUser: $('turnUser'), turnPass: $('turnPass'), relayOnly: $('relayOnly'),
+  local: $('local'), remote: $('remote'), copyLocal: $('copyLocal'),
+  applyRemote: $('applyRemote'), clearRemote: $('clearRemote'),
+  start: $('start'), makeOffer: $('makeOffer'), hangUp: $('hangUp'),
+  signalStatus: $('signalStatus'),                    // 修复：原代码 id 拼成了 'ervationsStatus'
+  remoteAudio: $('remoteAudio'), playAudio: $('playAudio'),
+  chatHistory: $('chatHistory'), chatInput: $('chatInput'),
+  fileInput: $('fileInput'), sendFile: $('sendFile'), cancelSend: $('cancelSend'),
+  sendProgress: $('sendProgress'), recvProgress: $('recvProgress'), receivedFiles: $('receivedFiles'),
+  toast: $('toast'),
+};
+
+/* ---------- 状态 ---------- */
+let pc = null;
+let stream = null;
+let initPromise = null;     // 防止权限弹窗期间重复点击 Start
+let busyConn = null;        // 正在生成 offer/answer 的连接
+let chatChannel = null;
+let fileChannel = null;
+let lastTurnError = '';
+let outgoing = null;        // { name, cancelled }
+let incoming = null;        // { name, size, chunks, received, discard }
+
+/* ---------- 小工具 ---------- */
+let toastTimer = 0;
+function notify(msg, kind = 'info') {
+  els.toast.textContent = msg;
+  els.toast.className = 'show ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { els.toast.className = ''; }, 3500);
+}
+
+function setSignalStatus(text, isError = false) {
+  els.signalStatus.textContent = text;
+  els.signalStatus.classList.toggle('error', isError);
+}
+
+function errMsg(err) {
+  if (!err) return 'Unknown error';
+  if (err.name === 'NotAllowedError') return 'Microphone permission denied.';
+  if (err.name === 'NotFoundError') return 'No microphone found.';
+  if (err.name === 'NotReadableError') return 'Microphone is in use by another application.';
+  return err.message || String(err);
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(n < 10 ? 1 : 0) + ' ' + units[i];
+}
+
+function makeStatusSetter(el) {
+  let last = 0;
+  return (text, { force = false, error = false } = {}) => {
+    const now = performance.now();
+    if (!force && now - last < 120) return;   // 限流：每 16 KiB 刷一次 DOM 太频繁
+    last = now;
+    el.textContent = text;
+    el.classList.toggle('error', error);
+  };
+}
+const setSend = makeStatusSetter(els.sendProgress);
+const setRecv = makeStatusSetter(els.recvProgress);
+
+function sanitizeFileName(name) {
+  const s = (typeof name === 'string' ? name : '')
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '_')
+    .trim()
+    .slice(0, 200);
+  return s || 'download';
+}
+
+/* ---------- UI 状态机：按钮只在当前步骤合法时可用 ---------- */
+function refreshUi() {
+  const st = pc ? pc.signalingState : null;
+  const busy = !!pc && busyConn === pc;
+  const fresh = !!pc && st === 'stable' && !pc.remoteDescription && !pc.localDescription;
+
+  els.start.disabled = !!pc || !!initPromise;
+  els.makeOffer.disabled = !pc || busy || !fresh;
+  els.applyRemote.disabled = !pc || busy || !(fresh || st === 'have-local-offer');
+  els.hangUp.disabled = !pc;
+  els.copyLocal.disabled = !els.local.value;
+
+  const lockTurn = !!pc || !!initPromise;
+  for (const el of [els.turnUrl, els.turnUser, els.turnPass, els.relayOnly]) el.disabled = lockTurn;
+
+  els.chatInput.disabled = !(chatChannel && chatChannel.readyState === 'open');
+  const fileOpen = !!fileChannel && fileChannel.readyState === 'open';
+  els.sendFile.disabled = !fileOpen || !!outgoing;
+  els.cancelSend.disabled = !outgoing;
+}
+
+function setConnectionState(state) {
+  els.connState.textContent = state;
+  els.connDot.classList.remove('connecting', 'connected', 'warn', 'failed');
+  if (state === 'connecting') els.connDot.classList.add('connecting');
+  else if (state === 'connected') els.connDot.classList.add('connected');
+  else if (state === 'disconnected') els.connDot.classList.add('warn');     // 可能自动恢复，用橙色
+  else if (state === 'failed') els.connDot.classList.add('failed');
+}
+
+/* ---------- ICE 配置 ---------- */
+function buildConfig() {
+  const iceServers = [{ urls: STUN_URL }];
+  const raw = els.turnUrl.value.trim();
+  if (raw) {
+    const urls = raw.split(/[\s,]+/).filter(Boolean);
+    for (const u of urls) {
+      if (!/^turns?:/i.test(u)) throw new Error(`Invalid TURN URL "${u}" — it must start with turn: or turns:`);
+    }
+    const entry = { urls };
+    const user = els.turnUser.value.trim();
+    const pass = els.turnPass.value;
+    if (user) entry.username = user;
+    if (pass) entry.credential = pass;
+    iceServers.push(entry);
+  }
+  const relayOnly = els.relayOnly.checked;
+  if (relayOnly && !raw) throw new Error('"Relay only" needs a TURN URL.');
+  return { iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all' };
+}
+
+function waitIceGatheringComplete(conn, timeoutMs) {
+  return new Promise((resolve) => {
+    if (conn.iceGatheringState === 'complete') return resolve();
+    let timer = 0;
+    const check = () => { if (conn.iceGatheringState === 'complete') done(); };
+    const done = () => {
+      clearTimeout(timer);
+      conn.removeEventListener('icegatheringstatechange', check);
+      resolve();
+    };
+    conn.addEventListener('icegatheringstatechange', check);
+    timer = setTimeout(done, timeoutMs);
+  });
+}
+
+function summarizeCandidates(sdp) {
+  const seen = new Set();
+  const n = { host: 0, srflx: 0, relay: 0, prflx: 0 };
+  for (const line of sdp.split(/\r?\n/)) {
+    if (!line.startsWith('a=candidate:') || seen.has(line)) continue;   // BUNDLE 下同一候选可能重复出现
+    seen.add(line);
+    const m = / typ (\w+)/.exec(line);
+    if (m && m[1] in n) n[m[1]]++;
+  }
+  let text = `candidates: host ${n.host} · srflx ${n.srflx} · relay ${n.relay}`;
+  if (els.turnUrl.value.trim() && n.relay === 0) {
+    text += lastTurnError ? ` (TURN error: ${lastTurnError})` : ' (no relay candidate — check TURN settings)';
+  }
+  return { text, total: n.host + n.srflx + n.relay + n.prflx };
+}
+
+/* ---------- PeerConnection ---------- */
+function initPeerConnection() {
+  if (pc) return Promise.resolve();
+  if (!initPromise) {
+    initPromise = (async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone access requires https:// or localhost.');
+      }
+      // 先建连接：TURN 配置有误会在弹出麦克风授权前就报错
+      const conn = new RTCPeerConnection(buildConfig());
+      let mic;
+      try {
+        mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        conn.close();                       // 修复：失败时不留下没有事件处理器的半成品 pc
+        throw err;
+      }
+      conn.ontrack = (e) => { if (conn === pc) onRemoteTrack(e); };
+      conn.onicegatheringstatechange = () => { if (conn === pc) els.iceGather.textContent = conn.iceGatheringState; };
+      conn.onicecandidateerror = (e) => {
+        if (conn === pc && /^turns?:/i.test(e.url || '')) {
+          lastTurnError = `${e.errorCode}${e.errorText ? ' ' + e.errorText : ''}`;
+        }
+      };
+      conn.onconnectionstatechange = () => { if (conn === pc) onConnectionStateChange(); };
+      conn.onsignalingstatechange = () => { if (conn === pc) refreshUi(); };
+      conn.ondatachannel = (e) => { if (conn === pc) handleIncomingDataChannel(e.channel); };
+      mic.getTracks().forEach((t) => conn.addTrack(t, mic));
+      stream = mic;
+      pc = conn;
+      lastTurnError = '';
+      setConnectionState(conn.connectionState);
+      els.iceGather.textContent = conn.iceGatheringState;
+    })().finally(() => { initPromise = null; refreshUi(); });
+    refreshUi();
+  }
+  return initPromise;
+}
+
+function onRemoteTrack(e) {
+  const s = e.streams[0] || new MediaStream([e.track]);
+  if (els.remoteAudio.srcObject !== s) els.remoteAudio.srcObject = s;
+  playRemoteAudio();
+}
+
+function playRemoteAudio() {
+  const p = els.remoteAudio.play();
+  if (!p) return;
+  p.then(() => { els.playAudio.hidden = true; })
+   .catch((err) => {
+     if (err && err.name === 'AbortError') return;
+     els.playAudio.hidden = false;
+     notify('Autoplay was blocked — click "Play remote audio".', 'warn');
+   });
+}
+
+function onConnectionStateChange() {
+  const s = pc.connectionState;
+  setConnectionState(s);
+  if (s === 'connected') setSignalStatus('Connected.');
+  else if (s === 'disconnected') setSignalStatus('Connection interrupted — waiting for it to recover...');
+  else if (s === 'failed') setSignalStatus('Connection failed. Check the network / TURN settings, then Hang up and try again.', true);
+  refreshUi();
+}
+
+function hangUp() {
+  if (outgoing) outgoing.cancelled = true;
+  const conn = pc;
+  const chat = chatChannel;
+  const file = fileChannel;
+  pc = null;
+  chatChannel = null;
+  fileChannel = null;
+  busyConn = null;
+  if (incoming) setRecv(`Transfer of ${incoming.name} interrupted.`, { force: true, error: true });
+  incoming = null;
+  try { if (chat) chat.close(); } catch (_) {}
+  try { if (file) file.close(); } catch (_) {}
+  if (conn) conn.close();
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }   // 释放麦克风
+  els.remoteAudio.srcObject = null;
+  els.playAudio.hidden = true;
+  els.local.value = '';
+  lastTurnError = '';
+  setConnectionState('closed');
+  els.iceGather.textContent = 'new';
+  setSignalStatus('Hung up. Click Start to begin a new call.');
+  setSend('Waiting for connection...', { force: true });
+  if (conn) appendSystemMessage('Call ended');
+  refreshUi();
+}
+
+/* ---------- DataChannels ---------- */
+function handleIncomingDataChannel(ch) {
+  if (ch.label === 'chat') attachChatChannel(ch);
+  else if (ch.label === 'file') attachFileChannel(ch);
+}
+
+function createLocalDataChannels() {
+  if (chatChannel || fileChannel) return;
+  attachChatChannel(pc.createDataChannel('chat'));
+  attachFileChannel(pc.createDataChannel('file'));
+}
+
+// 双方同时生成 offer 后回滚时，丢弃本端创建的通道，改用对方创建的
+function dropLocalDataChannels() {
+  const chat = chatChannel;
+  const file = fileChannel;
+  chatChannel = null;
+  fileChannel = null;
+  try { if (chat) chat.close(); } catch (_) {}
+  try { if (file) file.close(); } catch (_) {}
+}
+
+function attachChatChannel(ch) {
+  chatChannel = ch;
+  // 每个回调都校验 ch 仍是当前通道，避免已丢弃 / 已挂断的旧通道改动 UI
+  ch.onopen = () => { if (ch !== chatChannel) return; appendSystemMessage('Chat ready'); refreshUi(); };
+  ch.onclose = () => { if (ch !== chatChannel) return; appendSystemMessage('Chat closed — the peer may have hung up'); refreshUi(); };
+  ch.onmessage = (e) => { if (ch === chatChannel && typeof e.data === 'string') appendChatMessage(e.data, 'peer'); };
+}
+
+function attachFileChannel(ch) {
+  fileChannel = ch;
+  ch.binaryType = 'arraybuffer';
+  ch.bufferedAmountLowThreshold = BUFFER_LOW;
+  ch.onopen = () => {
+    if (ch !== fileChannel) return;
+    setSend('File channel ready.', { force: true });
+    refreshUi();
+  };
+  ch.onclose = () => {
+    if (ch !== fileChannel) return;
+    if (incoming) setRecv(`Transfer of ${incoming.name} interrupted.`, { force: true, error: true });
+    incoming = null;
+    setSend('File channel closed.', { force: true });
+    refreshUi();
+  };
+  ch.onmessage = (e) => { if (ch === fileChannel) onFileMessage(e.data); };
+}
+
+/* ---------- 聊天 ---------- */
+function scrollChat() { els.chatHistory.scrollTop = els.chatHistory.scrollHeight; }
+
+function appendChatMessage(msg, who) {
+  const container = document.createElement('div');
+  container.className = 'chat-msg ' + (who === 'peer' ? 'chat-peer' : 'chat-me');
+  const meta = document.createElement('span');
+  meta.className = 'chat-meta';
+  meta.textContent = who === 'peer' ? 'Peer' : 'Me';
+  const text = document.createElement('div');
+  text.textContent = msg;
+  container.append(meta, text);
+  els.chatHistory.appendChild(container);
+  scrollChat();
+}
+
+// 系统消息单独显示，不再伪装成对方发的
+function appendSystemMessage(msg) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg chat-sys';
+  el.textContent = '— ' + msg + ' —';
+  els.chatHistory.appendChild(el);
+  scrollChat();
+}
+
+els.chatInput.addEventListener('keydown', (e) => {
+  // 修复：中文/日文等输入法选词时按回车不发送
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  const msg = els.chatInput.value.trim();
+  if (!msg) return;
+  if (!chatChannel || chatChannel.readyState !== 'open') return notify('Chat channel not ready.', 'warn');
+  chatChannel.send(msg);
+  appendChatMessage(msg, 'me');
+  els.chatInput.value = '';
+});
+
+/* ---------- 文件接收 ---------- */
+// 协议（file 通道）：字符串 = JSON 控制消息 {t:'meta'|'cancel'|'ack'}；二进制 = 当前文件的数据块
+function onFileMessage(data) {
+  if (typeof data === 'string') {
+    let msg;
+    try { msg = JSON.parse(data); } catch (_) { return; }
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'meta') beginIncoming(msg);
+    else if (msg.t === 'cancel') {
+      if (incoming) setRecv(`Sender cancelled ${incoming.name}.`, { force: true, error: true });
+      incoming = null;
+    } else if (msg.t === 'ack') {
+      setSend(`Peer received ${sanitizeFileName(msg.name)} ✓`, { force: true });
+    }
+    return;
+  }
+  if (!incoming || !(data instanceof ArrayBuffer)) return;   // 没有元数据的游离数据块直接丢弃
+  if (incoming.discard) return;
+  incoming.chunks.push(data);
+  incoming.received += data.byteLength;
+  if (incoming.received > incoming.size) {
+    setRecv(`Error: ${incoming.name} is larger than announced — discarded.`, { force: true, error: true });
+    incoming = null;
+  } else if (incoming.received === incoming.size) {
+    finishIncoming();
+  } else {
+    const pct = Math.floor((incoming.received / incoming.size) * 100);
+    setRecv(`Receiving ${incoming.name}: ${pct}% (${fmtBytes(incoming.received)} / ${fmtBytes(incoming.size)})`);
+  }
+}
+
+function beginIncoming(msg) {
+  const name = sanitizeFileName(msg.name);
+  const size = Number(msg.size);
+  if (!Number.isSafeInteger(size) || size < 0) {
+    setRecv('Error: invalid file metadata from peer.', { force: true, error: true });
+    incoming = null;
+    return;
+  }
+  if (size > MAX_FILE_SIZE) {
+    incoming = { name, size, discard: true };
+    setRecv(`Rejected ${name}: ${fmtBytes(size)} exceeds the ${fmtBytes(MAX_FILE_SIZE)} limit.`, { force: true, error: true });
+    return;
+  }
+  incoming = { name, size, chunks: [], received: 0, discard: false };
+  setRecv(`Receiving ${name}: 0% (0 B / ${fmtBytes(size)})`, { force: true });
+  if (size === 0) finishIncoming();         // 修复：0 字节文件立即完成
+}
+
+function finishIncoming() {
+  const { name, size, chunks } = incoming;
+  incoming = null;                          // 修复：完成后重置状态，多余数据块不会再次触发
+  // 固定 octet-stream：对方发来的 HTML/SVG 若在本站源下打开会执行脚本
+  const blob = new Blob(chunks, { type: 'application/octet-stream' });
+  addReceivedFile(name, size, URL.createObjectURL(blob));
+  setRecv(`Received ${name} (${fmtBytes(size)}) — click Save below.`, { force: true });
+  try { if (fileChannel && fileChannel.readyState === 'open') fileChannel.send(JSON.stringify({ t: 'ack', name })); } catch (_) {}
+}
+
+// 修复：不再自动下载，由用户决定是否保存；URL 在点 Remove 时才 revoke
+function addReceivedFile(name, size, url) {
+  const li = document.createElement('li');
+  li.className = 'file-item';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'name';
+  nameEl.textContent = name;
+  nameEl.title = name;
+  const sizeEl = document.createElement('span');
+  sizeEl.className = 'size';
+  sizeEl.textContent = fmtBytes(size);
+  const save = document.createElement('a');
+  save.href = url;
+  save.download = name;
+  save.textContent = 'Save';
+  const remove = document.createElement('button');
+  remove.className = 'secondary';
+  remove.textContent = 'Remove';
+  remove.onclick = () => { URL.revokeObjectURL(url); li.remove(); };
+  li.append(nameEl, sizeEl, save, remove);
+  els.receivedFiles.prepend(li);
+}
+
+/* ---------- 文件发送 ---------- */
+function waitForDrain(ch) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      ch.removeEventListener('bufferedamountlow', ok);
+      ch.removeEventListener('close', fail);
+    };
+    const ok = () => { cleanup(); resolve(); };
+    const fail = () => { cleanup(); reject(new Error('File channel closed')); };
+    ch.addEventListener('bufferedamountlow', ok);
+    ch.addEventListener('close', fail);
+  });
+}
+
+async function sendSelectedFile() {
+  const file = els.fileInput.files[0];
+  if (!file) return notify('Select a file first.', 'warn');
+  const ch = fileChannel;
+  if (!ch || ch.readyState !== 'open') return notify('File channel not ready.', 'warn');
+  if (outgoing) return;                     // 修复：同一时间只发一个文件，避免数据块交错
+  if (file.size > MAX_FILE_SIZE) return notify(`File too large (max ${fmtBytes(MAX_FILE_SIZE)}).`, 'warn');
+
+  const job = { name: file.name, cancelled: false };
+  outgoing = job;
+  refreshUi();
+  const checkpoint = () => {
+    if (job.cancelled) throw new Error('cancelled');
+    if (ch.readyState !== 'open') throw new Error('File channel closed');
+  };
+
+  let sent = 0;
+  try {
+    ch.send(JSON.stringify({ t: 'meta', name: file.name, size: file.size }));
+    setSend(`Sending ${file.name}: 0%`, { force: true });
+    for (let off = 0; off < file.size; off += READ_BLOCK) {
+      checkpoint();
+      const block = await file.slice(off, off + READ_BLOCK).arrayBuffer();
+      for (let i = 0; i < block.byteLength; i += CHUNK_SIZE) {
+        checkpoint();
+        if (ch.bufferedAmount > BUFFER_HIGH) {
+          await waitForDrain(ch);           // 用 bufferedamountlow 事件代替 setTimeout 轮询
+          checkpoint();
+        }
+        const len = Math.min(CHUNK_SIZE, block.byteLength - i);
+        ch.send(new Uint8Array(block, i, len));
+        sent += len;
+        const pct = Math.floor((sent / file.size) * 100);
+        setSend(`Sending ${file.name}: ${pct}% (${fmtBytes(sent)} / ${fmtBytes(file.size)})`);
+      }
+    }
+    setSend(`Sent ${file.name} (${fmtBytes(file.size)}) — waiting for peer to confirm...`, { force: true });
+  } catch (err) {
+    if (ch.readyState === 'open') {
+      try { ch.send(JSON.stringify({ t: 'cancel' })); } catch (_) {}
+    }
+    if (job.cancelled) setSend(`Cancelled ${file.name}.`, { force: true, error: true });
+    else setSend(`Send failed: ${errMsg(err)}`, { force: true, error: true });
+  } finally {
+    if (outgoing === job) outgoing = null;
+    refreshUi();
+  }
+}
+
+/* ---------- 信令 ---------- */
+async function publishLocalDescription(conn) {
+  els.local.value = '';
+  refreshUi();
+  setSignalStatus('Gathering ICE candidates...');
+  // 修复：等 ICE 收集完成再输出，此时 localDescription.sdp 已包含全部候选，不再需要单独的 ice 数组
+  await waitIceGatheringComplete(conn, ICE_GATHER_TIMEOUT);
+  if (conn !== pc) throw new Error('Hung up');
+  const desc = conn.localDescription;
+  els.local.value = JSON.stringify({ sdp: { type: desc.type, sdp: desc.sdp } }, null, 2);
+  refreshUi();
+  return summarizeCandidates(desc.sdp);
+}
+
+function parseRemote(raw) {
+  raw = raw.trim();
+  if (!raw) throw new Error('Remote JSON is empty.');
+  let obj;
+  try { obj = JSON.parse(raw); } catch (_) {
+    throw new Error('Remote JSON is not valid JSON — make sure you copied all of it.');
+  }
+  if (obj && typeof obj.type === 'string' && typeof obj.sdp === 'string') obj = { sdp: obj };   // 也接受裸的 {type, sdp}
+  const d = obj && obj.sdp;
+  if (!d || typeof d.sdp !== 'string' || (d.type !== 'offer' && d.type !== 'answer')) {
+    throw new Error('Remote JSON contains no offer/answer — the peer may have copied it before it was ready.');
+  }
+  return obj;
+}
+
+// 兼容旧版页面生成的 {sdp, ice:[...]} 格式
+async function addLegacyCandidates(conn, list) {
+  if (!Array.isArray(list)) return;
+  for (const c of list) {
+    try { await conn.addIceCandidate(c); } catch (_) {}
+  }
+}
+
+async function makeOffer() {
+  const conn = pc;
+  if (!conn || busyConn === conn) return;
+  busyConn = conn;
+  refreshUi();
+  try {
+    createLocalDataChannels();
+    await conn.setLocalDescription(await conn.createOffer());
+    const summary = await publishLocalDescription(conn);
+    if (summary.total === 0) {
+      setSignalStatus(`Offer generated but no ICE candidates were gathered (${summary.text}). Check network / TURN.`, true);
+    } else {
+      setSignalStatus(`Offer ready (${summary.text}). Copy it to peer B, then paste B's answer on the right and click Apply Remote.`);
+    }
+  } catch (err) {
+    if (conn === pc) setSignalStatus('Error: ' + errMsg(err), true);
+  } finally {
+    if (busyConn === conn) busyConn = null;
+    refreshUi();
+  }
+}
+
+async function applyRemote() {
+  const conn = pc;
+  if (!conn || busyConn === conn) return;
+  let obj;
+  try { obj = parseRemote(els.remote.value); } catch (err) { return setSignalStatus(err.message, true); }
+  const desc = obj.sdp;
+
+  busyConn = conn;
+  refreshUi();
+  try {
+    if (conn.localDescription && desc.sdp === conn.localDescription.sdp) {
+      throw new Error("That's your own JSON — paste the JSON from your peer.");
+    }
+    if (desc.type === 'offer') {
+      if (conn.signalingState === 'have-local-offer') {
+        // 双方都点了 Generate Offer（glare）：放弃自己的 offer，转为应答方
+        await conn.setLocalDescription({ type: 'rollback' });
+        dropLocalDataChannels();
+        notify('Both sides generated an offer — this side switched to answering.', 'warn');
+      } else if (conn.signalingState !== 'stable' || conn.remoteDescription) {
+        throw new Error('This call is already negotiated. Click Hang up to start a new one.');
+      }
+      await conn.setRemoteDescription(desc);
+      await addLegacyCandidates(conn, obj.ice);
+      await conn.setLocalDescription(await conn.createAnswer());
+      const summary = await publishLocalDescription(conn);
+      if (summary.total === 0) {
+        setSignalStatus(`Answer generated but no ICE candidates were gathered (${summary.text}). Check network / TURN.`, true);
+      } else {
+        setSignalStatus(`Answer ready (${summary.text}). Copy the left JSON back to peer A.`);
+      }
+    } else {
+      if (conn.signalingState !== 'have-local-offer') {
+        throw new Error('Received an answer, but this side has no pending offer. Peer B should paste an offer, not an answer.');
+      }
+      await conn.setRemoteDescription(desc);
+      await addLegacyCandidates(conn, obj.ice);
+      if (conn.connectionState !== 'connected') setSignalStatus('Answer applied. Connecting...');
+    }
+  } catch (err) {
+    if (conn === pc) setSignalStatus('Error: ' + errMsg(err), true);
+  } finally {
+    if (busyConn === conn) busyConn = null;
+    refreshUi();
+  }
+}
+
+/* ---------- 按钮绑定 ---------- */
+els.start.onclick = async () => {
+  try {
+    await initPeerConnection();
+    setSignalStatus("Ready. Peer A: click Generate Offer. Peer B: paste A's JSON on the right and click Apply Remote.");
+  } catch (err) {
+    setSignalStatus('Failed to start: ' + errMsg(err), true);
+  }
+};
+els.makeOffer.onclick = makeOffer;
+els.applyRemote.onclick = applyRemote;
+els.hangUp.onclick = hangUp;
+els.playAudio.onclick = playRemoteAudio;
+els.sendFile.onclick = sendSelectedFile;
+els.cancelSend.onclick = () => { if (outgoing) outgoing.cancelled = true; };
+els.clearRemote.onclick = () => { els.remote.value = ''; };
+
+els.copyLocal.onclick = async () => {
+  const text = els.local.value;
+  if (!text) return;
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (_) {
+    els.local.focus();
+    els.local.select();
+    try { ok = document.execCommand('copy'); } catch (_) {}
+  }
+  notify(ok ? 'Local JSON copied. Send it to your peer.' : 'Copy failed — select the text and copy it manually.', ok ? 'info' : 'warn');
+};
+
+refreshUi();
+</script>
+</body>
+</html>
